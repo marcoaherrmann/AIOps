@@ -110,7 +110,7 @@ pip install -r requirements.txt
 
 ---
 
-## ▶Running the project
+## Running the project
 
 ### Run notebooks
 

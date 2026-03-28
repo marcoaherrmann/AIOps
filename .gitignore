@@ -1,0 +1,34 @@
+# Python
+
+**pycache**/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+
+venv/
+.env/
+
+# Jupyter Notebook checkpoints
+
+.ipynb_checkpoints/
+
+# MLflow
+
+mlruns/
+
+# Models
+
+models/*.pkl
+
+# Data (optional - if dataset is large)
+
+data/raw/
+data/processed/
+
+# OS files
+
+.DS_Store
+Thumbs.db
+ 

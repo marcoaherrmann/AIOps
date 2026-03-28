@@ -1,6 +1,6 @@
-# ✈️ DelayPredict – Flight Delay Prediction
+# DelayPredict – Flight Delay Prediction
 
-## 📌 Project Overview
+## Project Overview
 
 Millions of travelers book flights daily using platforms like Skyscanner, Google Flights, or Kayak. While these platforms provide information about price, time, and availability, they lack one critical factor: **flight reliability**.
 
@@ -8,7 +8,7 @@ DelayPredict aims to solve this problem by providing a machine learning-based pr
 
 ---
 
-## 🎯 Objective
+## Objective
 
 The goal of this project is to build an end-to-end ML system that predicts:
 
@@ -18,7 +18,7 @@ This is a **binary classification problem**.
 
 ---
 
-## 📊 Dataset
+## Dataset
 
 We use the **Airline Delay Dataset (US Department of Transportation)** containing millions of real flights.
 
@@ -36,7 +36,7 @@ Target:
 
 ---
 
-## 🧠 Approach
+## Approach
 
 ### 1. Data Preparation
 
@@ -70,7 +70,7 @@ Target:
 
 ---
 
-## 🏗️ Project Structure
+## Project Structure
 
 ```
 airline-delay-prediction/
@@ -85,7 +85,7 @@ airline-delay-prediction/
 
 ---
 
-## 🚀 Setup
+## Setup
 
 ### 1. Clone repository
 
@@ -110,7 +110,7 @@ pip install -r requirements.txt
 
 ---
 
-## ▶️ Running the project
+## ▶Running the project
 
 ### Run notebooks
 
@@ -126,7 +126,7 @@ uvicorn app.main:app --reload
 
 ---
 
-## 📥 Example Request
+## Example Request
 
 ```
 POST /predict
@@ -145,7 +145,7 @@ POST /predict
 
 ---
 
-## 📤 Example Response
+## Example Response
 
 ```json
 {
@@ -156,7 +156,7 @@ POST /predict
 
 ---
 
-## ⚠️ Limitations
+## Limitations
 
 * No weather data included
 * Only US flight data
@@ -164,13 +164,16 @@ POST /predict
 
 ---
 
-## 👥 Authors
+## Authors
 
-* Your Team Name
+* Taylan Güler
+* Marco Herrmann
+* Julian Macher
+* Marco Vierkorn
 
 ---
 
-## 📚 Course
+## Course
 
 AI Operations (AIOps) – Hochschule Heilbronn
  

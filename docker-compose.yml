@@ -3,7 +3,7 @@ services:
     build: .
     ports:
       - "8888:8888"   # Jupyter
-      - "5000:5000"   # MLflow UI
+      - "5001:5000"   # MLflow UI
     volumes:
       - .:/app        # mounts your local project folder into the container
                       # → changes you make locally are instantly reflected inside

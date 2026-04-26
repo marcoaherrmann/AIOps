@@ -1,11 +1,9 @@
 pandas
 numpy
-scikit-learn
 matplotlib
-jupyter
+scikit-learn
+xgboost
 mlflow
-fastapi
-uvicorn
 joblib
-pydantic
- 
+jupyter
+notebook

@@ -1,34 +1,31 @@
 # Python
-
-**pycache**/
+__pycache__/
 *.pyc
 *.pyo
 *.pyd
 
 # Virtual environment
-
 venv/
 .env/
 
 # Jupyter Notebook checkpoints
-
 .ipynb_checkpoints/
 
-# MLflow
+# Jupyter output notebooks (generated, not source)
+*_output.ipynb
 
+# MLflow
 mlruns/
+*.db
+mlflow.db
 
 # Models
-
 models/*.pkl
 
 # Data (optional - if dataset is large)
-
 data/raw/
 data/processed/
 
 # OS files
-
 .DS_Store
 Thumbs.db
- 

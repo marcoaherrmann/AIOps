@@ -2,14 +2,15 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install dependencies first (cached layer — only rebuilds if requirements.txt changes)
 COPY requirements.txt .
+
+# Install xgboost without GPU dependencies
+RUN pip install --no-cache-dir xgboost==3.2.0 --no-deps
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy project files
 COPY . .
 
-# Jupyter on 8888, MLflow UI on 5000
 EXPOSE 8888 5000
 
-CMD ["jupyter", "notebook", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root", "--NotebookApp.token=''", "--NotebookApp.password=''"]
+CMD ["jupyter", "notebook", "--ip=0.0.0.0", "--port=8888", "--no-browser", \
+     "--allow-root", "--NotebookApp.token=''", "--NotebookApp.password=''"]

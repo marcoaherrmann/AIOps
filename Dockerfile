@@ -10,10 +10,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Make startup script executable
-RUN chmod +x start.sh
-
 EXPOSE 8888 5000
 
-# Starts both Jupyter (port 8888) and MLflow UI (port 5000)
-CMD ["./start.sh"]
+# Starts MLflow UI (port 5000) and Jupyter (port 8888)
+CMD ["bash", "-c", "mlflow ui --host 0.0.0.0 --port 5000 & jupyter notebook --ip=0.0.0.0 --port=8888 --no-browser --allow-root --ServerApp.token='' --ServerApp.password=''"]

@@ -3,9 +3,18 @@ services:
     build: .
     ports:
       - "8888:8888"   # Jupyter
-      - "5001:5000"   # MLflow UI
     volumes:
       - .:/app        # mounts your local project folder into the container
                       # → changes you make locally are instantly reflected inside
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  mlflow:
+    build: .
+    command: mlflow ui --host 0.0.0.0 --port 5000 --backend-store-uri /app/notebooks/mlruns
+    ports:
+      - "5001:5000"   # MLflow UI → http://localhost:5001
+    volumes:
+      - .:/app        # same volume so mlruns is shared with notebook
     environment:
       - PYTHONUNBUFFERED=1

@@ -128,6 +128,7 @@ def predict(flight: FlightInput):
         "Airline"      : flight.Airline,
         "AirportFrom"  : flight.AirportFrom,
         "AirportTo"    : flight.AirportTo,
+        "Route"        : f"{flight.AirportFrom}-{flight.AirportTo}",
         "DayOfWeek"    : flight.DayOfWeek,
         "Length"       : flight.Length,
         "DepartureHour": flight.DepartureHour,

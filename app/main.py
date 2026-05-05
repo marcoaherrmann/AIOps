@@ -44,11 +44,10 @@ except FileNotFoundError:
 app = FastAPI(
     title="DelayPredict",
     description="Binary flight delay prediction — AIOps SoSe 2026",
-    version="1.0.0",
+    version="1.0.0",    
 )
 
 # ── Input schema (Milestone 02) ───────────────────────────────────────────────
-VALID_DAYS = {1, 2, 3, 4, 5, 6, 7}
 
 class FlightInput(BaseModel):
     Airline: str = Field(

@@ -65,10 +65,10 @@ def run_demo():
     print(f"  Feedback count  : {drift.get('feedback_count', 'N/A')}")
 
     if drift.get("drift_detected"):
-        print("\n  Drift erkannt → Retraining wurde automatisch ausgelöst")
-        print("  Modell wurde neu geladen")
+        print("\n  Drift detected — retraining was triggered automatically")
+        print("  Model has been reloaded")
     else:
-        print("\n  Kein Drift — Modell ist stabil")
+        print("\n  No drift — model is stable")
     print("=" * 55)
 
 if __name__ == "__main__":

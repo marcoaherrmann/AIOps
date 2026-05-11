@@ -128,6 +128,60 @@ def check_drift() -> dict:
         "feedback_count"  : int(len(df_feedback)),
     }
 
+
+# ── Auto loop ─────────────────────────────────────────────────────────────────
+def auto_loop():
+    """
+    Called after every prediction.
+    Every 10 predictions: simulate feedback, check drift, retrain if needed.
+    """
+    import pandas as pd
+
+    if not PRED_LOG_PATH.exists():
+        return
+
+    df = pd.read_csv(PRED_LOG_PATH)
+    total = len(df)
+
+    # Only trigger every 10 predictions
+    if total % 10 != 0:
+        return
+
+    print(f"[Auto Loop] {total} predictions — running feedback simulation + drift check...")
+
+    # Simulate feedback for predictions without actual_delay
+    try:
+        import sys
+        sys.path.append("/app/src")
+        from simulate_feedback import simulate
+        simulate(n=10)
+    except Exception as e:
+        print(f"[Auto Loop] Feedback simulation failed: {e}")
+        return
+
+    # Check drift
+    drift_result = check_drift()
+    print(f"[Auto Loop] Drift check: {drift_result}")
+
+    if drift_result.get("drift_detected"):
+        print("[Auto Loop] Drift detected — retraining...")
+        try:
+            result = subprocess.run(
+                ["python", "src/train.py"],
+                capture_output=True, text=True, cwd="/app"
+            )
+            if result.returncode == 0:
+                global model
+                model = load_model()
+                print("[Auto Loop] Retraining complete — model reloaded.")
+            else:
+                print(f"[Auto Loop] Retraining failed: {result.stderr}")
+        except Exception as e:
+            print(f"[Auto Loop] Retraining error: {e}")
+    else:
+        print("[Auto Loop] No drift detected — model is fine.")
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 @app.get("/health")
 def health():
@@ -154,6 +208,9 @@ def predict_endpoint(flight: FlightInput):
     # Log prediction
     prediction_id = datetime.utcnow().strftime("%Y%m%d%H%M%S%f")
     log_prediction(flight, result, prediction_id)
+
+    # ── Auto loop: every 10 predictions, simulate feedback + check drift ───────
+    auto_loop()
 
     return PredictionOutput(
         delay_predicted  =result["delay_predicted"],

@@ -109,23 +109,23 @@ def check_drift() -> dict:
 
     import pandas as pd
     df = pd.read_csv(PRED_LOG_PATH)
-    df_feedback = df[df["actual_delay"] != ""]
+    df_feedback = df[df["actual_delay"].notna()]
 
     if len(df_feedback) < 10:
         return {"drift_detected": False, "reason": f"Not enough feedback yet ({len(df_feedback)}/10)"}
 
     df_feedback = df_feedback.copy()
-    df_feedback["actual_delay"]   = df_feedback["actual_delay"].astype(int)
+    df_feedback["actual_delay"]    = df_feedback["actual_delay"].astype(int)
     df_feedback["delay_predicted"] = df_feedback["delay_predicted"].astype(int)
 
-    accuracy = (df_feedback["delay_predicted"] == df_feedback["actual_delay"]).mean()
-    drift    = accuracy < DRIFT_THRESHOLD
+    accuracy = float((df_feedback["delay_predicted"] == df_feedback["actual_delay"]).mean())
+    drift    = bool(accuracy < DRIFT_THRESHOLD)
 
     return {
         "drift_detected"  : drift,
         "current_accuracy": round(accuracy, 4),
         "threshold"       : DRIFT_THRESHOLD,
-        "feedback_count"  : len(df_feedback),
+        "feedback_count"  : int(len(df_feedback)),
     }
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────

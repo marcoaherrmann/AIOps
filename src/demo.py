@@ -1,8 +1,9 @@
 """
 src/demo.py
 ------------
-Demonstriert den kompletten Learning Loop automatisch.
-Schickt 10 Predictions an die API und zeigt was passiert.
+Automatically sends 10 flight predictions to the API, 
+waits for the Auto Loop to complete, and then shows 
+whether drift was detected and if the model was retrained.
 
 Usage:
     python src/demo.py

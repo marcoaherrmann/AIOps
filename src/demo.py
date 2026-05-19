@@ -1,76 +1,106 @@
 """
 src/demo.py
-------------
-Automatically sends 10 flight predictions to the API, 
-waits for the Auto Loop to complete, and then shows 
-whether drift was detected and if the model was retrained.
+-----------
+Runs the complete learning loop automatically.
+Sends predictions until the entire data stream is consumed.
 
 Usage:
     python src/demo.py
+    python src/demo.py --predictions-per-chunk 10  # predictions to trigger each chunk
 """
 
 import requests
 import time
+import argparse
+import random
 
-API = "http://localhost:8000"
+import os
+API = os.environ.get("API_URL", "http://localhost:8000")
 
-# 10 verschiedene Flüge
-FLIGHTS = [
-    {"Airline": "WN", "AirportFrom": "LAX", "AirportTo": "SFO", "DayOfWeek": 1, "Length": 60,  "DepartureHour": 8},
-    {"Airline": "AA", "AirportFrom": "JFK", "AirportTo": "MIA", "DayOfWeek": 2, "Length": 190, "DepartureHour": 6},
-    {"Airline": "DL", "AirportFrom": "ATL", "AirportTo": "ORD", "DayOfWeek": 3, "Length": 130, "DepartureHour": 9},
-    {"Airline": "UA", "AirportFrom": "SFO", "AirportTo": "DEN", "DayOfWeek": 4, "Length": 158, "DepartureHour": 7},
-    {"Airline": "CO", "AirportFrom": "IAH", "AirportTo": "LAX", "DayOfWeek": 5, "Length": 210, "DepartureHour": 5},
-    {"Airline": "OO", "AirportFrom": "DEN", "AirportTo": "SLC", "DayOfWeek": 6, "Length": 90,  "DepartureHour": 10},
-    {"Airline": "US", "AirportFrom": "CLT", "AirportTo": "DCA", "DayOfWeek": 7, "Length": 85,  "DepartureHour": 11},
-    {"Airline": "B6", "AirportFrom": "JFK", "AirportTo": "BOS", "DayOfWeek": 1, "Length": 60,  "DepartureHour": 14},
-    {"Airline": "XE", "AirportFrom": "IAH", "AirportTo": "HRL", "DayOfWeek": 2, "Length": 70,  "DepartureHour": 12},
-    {"Airline": "MQ", "AirportFrom": "ATL", "AirportTo": "LGA", "DayOfWeek": 3, "Length": 125, "DepartureHour": 13},
-]
+AIRLINES     = ["WN", "AA", "DL", "UA", "CO", "OO", "US", "B6", "XE", "MQ", "EV", "FL"]
+AIRPORTS     = ["LAX", "SFO", "JFK", "MIA", "ATL", "ORD", "DEN", "SLC", "DCA", "IAH", "BOS"]
+DAYS         = [1, 2, 3, 4, 5, 6, 7]
+HOURS        = list(range(6, 23))
+LENGTHS      = [45, 60, 90, 120, 150, 180, 210, 240, 270, 300]
 
-def run_demo():
-    print("=" * 55)
-    print("  DelayPredict — Learning Loop Demo")
-    print("=" * 55)
 
-    # ── Health check ───────────────────────────────────────────
+def random_flight():
+    return {
+        "Airline"      : random.choice(AIRLINES),
+        "AirportFrom"  : random.choice(AIRPORTS),
+        "AirportTo"    : random.choice(AIRPORTS),
+        "DayOfWeek"    : random.choice(DAYS),
+        "Length"       : random.choice(LENGTHS),
+        "DepartureHour": random.choice(HOURS),
+    }
+
+
+def run_demo(predictions_per_chunk: int = 10):
+    print("=" * 60)
+    print("  DelayPredict — Full Learning Loop Demo")
+    print("=" * 60)
+
+    # ── Health check ───────────────────────────────────────────────
     r = requests.get(f"{API}/health")
-    print(f"\nAPI Status: {r.json()['status'].upper()}")
-    print(f"Model     : {r.json()['model']}")
+    print(f"\nAPI: {r.json()['status'].upper()} | Model: {r.json()['model']}")
 
-    # ── 10 Predictions ─────────────────────────────────────────
-    print(f"\nSending 10 predictions...")
-    print("-" * 55)
+    # ── Reset stream to beginning ──────────────────────────────────
+    requests.post(f"{API}/stream/reset")
+    print("Stream reset to beginning.\n")
 
-    for i, flight in enumerate(FLIGHTS, 1):
-        r = requests.post(f"{API}/predict", json=flight)
-        result = r.json()
-        print(f"  [{i:2}] {flight['Airline']} {flight['AirportFrom']}→{flight['AirportTo']} "
-              f"| delayed={result['delay_predicted']} "
-              f"| prob={result['delay_probability']:.2f}")
-        time.sleep(0.3)
+    chunk = 0
+    total_predictions = 0
 
-    # ── Wait for auto loop ─────────────────────────────────────
-    print("\nWaiting for Auto Loop to complete...")
-    time.sleep(3)
+    while True:
+        chunk += 1
+        print(f"\n{'='*60}")
+        print(f"  Chunk {chunk} — sending {predictions_per_chunk} predictions...")
+        print(f"{'='*60}")
 
-    # ── Drift check ────────────────────────────────────────────
-    r = requests.get(f"{API}/drift")
-    drift = r.json()
-    print("\n" + "=" * 55)
-    print("  Auto Loop Result")
-    print("=" * 55)
-    print(f"  Drift detected  : {drift.get('drift_detected')}")
-    print(f"  Accuracy        : {drift.get('current_accuracy', 'N/A')}")
-    print(f"  Threshold       : {drift.get('threshold', 'N/A')}")
-    print(f"  Feedback count  : {drift.get('feedback_count', 'N/A')}")
+        # ── Send predictions ───────────────────────────────────────
+        for i in range(predictions_per_chunk):
+            flight = random_flight()
+            r = requests.post(f"{API}/predict", json=flight)
+            result = r.json()
+            total_predictions += 1
+            print(f"  [{total_predictions:3}] {flight['Airline']} "
+                  f"{flight['AirportFrom']}→{flight['AirportTo']} "
+                  f"| delayed={result['delay_predicted']} "
+                  f"| prob={result['delay_probability']:.2f}")
+            time.sleep(0.1)
 
-    if drift.get("drift_detected"):
-        print("\n  Drift detected — retraining was triggered automatically")
-        print("  Model has been reloaded")
-    else:
-        print("\n  No drift — model is stable")
-    print("=" * 55)
+        # ── Wait for loop to complete ──────────────────────────────
+        print("\nWaiting for auto loop...")
+        time.sleep(5)
+
+        # ── Check status ───────────────────────────────────────────
+        status = requests.get(f"{API}/status").json()
+        drift  = status.get("drift", {})
+        stream_remaining = status.get("stream_remaining", 0)
+
+        print(f"\n  Stream consumed : {status['stream_consumed']:,} / {status['stream_total']:,} rows")
+        print(f"  Drift detected  : {drift.get('drift_detected', False)}")
+        print(f"  Max PSI         : {drift.get('max_psi', 'N/A')}")
+        print(f"  Worst feature   : {drift.get('worst_feature', 'N/A')}")
+        print(f"  Retrains so far : {status['retrain_count']}")
+
+        if status['retrain_count'] > 0:
+            last = status['retrain_history'][-1]
+            print(f"  Last retrain    : ROC-AUC={last.get('roc_auc','N/A')} | F1={last.get('f1','N/A')}")
+
+        # ── Check if stream is complete ────────────────────────────
+        if stream_remaining == 0:
+            print(f"\n{'='*60}")
+            print("  Stream complete! All data consumed.")
+            print(f"  Total predictions : {total_predictions}")
+            print(f"  Total retrains    : {status['retrain_count']}")
+            print(f"\n  View dashboard: http://localhost:8000/dashboard")
+            print(f"{'='*60}")
+            break
+
 
 if __name__ == "__main__":
-    run_demo()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--predictions-per-chunk", type=int, default=10)
+    args = parser.parse_args()
+    run_demo(predictions_per_chunk=args.predictions_per_chunk)

@@ -440,7 +440,7 @@ def dashboard():
     setInterval(() => {
         const y = window.scrollY;
         load().then(() => window.scrollTo(0, y));
-    }, 30000);
+    }, 5000);
     </script>
 </body>
 </html>

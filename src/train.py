@@ -8,9 +8,11 @@ Also logs params and metrics to MLflow under the DelayPredict experiment.
 Usage:
     python src/train.py                        # initial training on 50%
     python src/train.py --all-data             # retrain on all accumulated data
+    python src/train.py --incremental          # 90/10 split, 10 cumulative rounds
 """
 
 import sys
+import json
 import joblib
 import mlflow
 import mlflow.sklearn
@@ -26,12 +28,13 @@ from evaluate import compute_metrics, print_metrics, save_metrics
 from drift import save_training_reference
 
 # ── Constants ─────────────────────────────────────────────────────────────────
-MODEL_PATH      = Path("models/xgb_model.pkl")
-BACKUP_PATH     = Path("models/xgb_model_backup.pkl")
-STREAM_PATH     = Path("data/processed/stream_data.csv")   # accumulated new data
-MLFLOW_URI      = "file:///app/notebooks/mlruns"
-RANDOM_STATE    = 42
-INITIAL_FRAC    = 0.5   # train on 50% initially
+MODEL_PATH              = Path("models/xgb_model.pkl")
+BACKUP_PATH             = Path("models/xgb_model_backup.pkl")
+STREAM_PATH             = Path("data/processed/stream_data.csv")   # accumulated new data
+INCREMENTAL_HISTORY_PATH = Path("data/processed/incremental_history.json")
+MLFLOW_URI              = "file:///app/notebooks/mlruns"
+RANDOM_STATE            = 42
+INITIAL_FRAC            = 0.5   # train on 50% initially
 
 # ── Hyperparameters ───────────────────────────────────────────────────────────
 PARAMS = {
@@ -154,6 +157,119 @@ def train(retrain_with_stream: bool = False):
     return metrics
 
 
+def train_incremental(rounds: int = 10) -> list:
+    """
+    Incremental training with 90/10 split.
+
+    - 90% of data → training pool, split into 10 cumulative rounds
+    - 10% of data → fixed validation set, never touched during training
+    - Each round trains on 10%, 20%, ..., 100% of the training pool
+    - Evaluates every round against the same validation set
+    - Results saved to data/processed/incremental_history.json
+
+    Returns list of dicts with metrics per round.
+    """
+
+    print("\n" + "="*60)
+    print("  Incremental Training — 90/10 Split, 10 Rounds")
+    print("="*60)
+
+    # ── Load full dataset ──────────────────────────────────────────────────────
+    df = load_data()
+
+    # ── 90/10 Split ────────────────────────────────────────────────────────────
+    df_val        = df.sample(frac=0.1, random_state=RANDOM_STATE)           # 10% fixed validation
+    df_train_pool = df.drop(df_val.index)                                     # 90% training pool
+
+    X_val = df_val[FEATURES]
+    y_val = df_val[TARGET]
+
+    print(f"Training pool : {len(df_train_pool):,} rows")
+    print(f"Validation set: {len(df_val):,} rows (fixed)")
+
+    # ── MLflow setup ──────────────────────────────────────────────────────────
+    mlflow.set_tracking_uri(MLFLOW_URI)
+    mlflow.set_experiment("DelayPredict_Incremental")
+
+    history = []
+
+    # Clear history file immediately so the dashboard shows 0 rounds as soon as training starts
+    INCREMENTAL_HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    INCREMENTAL_HISTORY_PATH.write_text(json.dumps([], indent=2))
+
+    # ── 10 Cumulative Rounds ───────────────────────────────────────────────────
+    for round_num in range(1, rounds + 1):
+        frac = round_num / rounds                          # 0.1, 0.2, ..., 1.0
+        df_train = df_train_pool.sample(frac=frac, random_state=RANDOM_STATE)
+
+        X_train = df_train[FEATURES]
+        y_train = df_train[TARGET]
+
+        print(f"\nRound {round_num:2}/{rounds} — training on {len(df_train):,} rows ({int(frac*100)}%)...")
+
+        # ── Train ──────────────────────────────────────────────────────────────
+        pipeline = build_pipeline()
+        pipeline.fit(X_train, y_train)
+
+        # ── Evaluate against fixed validation set ──────────────────────────────
+        metrics = compute_metrics(pipeline, X_val, y_val)
+        print_metrics(metrics, model_name=f"Round {round_num}")
+
+        # ── Store result ───────────────────────────────────────────────────────
+        result = {
+            "round"      : round_num,
+            "train_size" : len(df_train),
+            "roc_auc"    : round(metrics["ROC-AUC"], 4),
+            "f1"         : round(metrics["F1"], 4),
+            "accuracy"   : round(metrics["Accuracy"], 4),
+            "precision"  : round(metrics["Precision"], 4),
+            "recall"     : round(metrics["Recall"], 4),
+        }
+        history.append(result)
+
+        # Save partial results after each round so the API can report progress
+        INCREMENTAL_HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+        INCREMENTAL_HISTORY_PATH.write_text(json.dumps(history, indent=2))
+
+        # ── Log to MLflow ──────────────────────────────────────────────────────
+        with mlflow.start_run(run_name=f"incremental_round_{round_num}"):
+            mlflow.log_params({
+                "round"      : round_num,
+                "train_size" : len(df_train),
+                "val_size"   : len(df_val),
+                "frac"       : frac,
+                **PARAMS,
+            })
+            mlflow.log_metrics({
+                "accuracy" : metrics["Accuracy"],
+                "precision": metrics["Precision"],
+                "recall"   : metrics["Recall"],
+                "f1"       : metrics["F1"],
+                "roc_auc"  : metrics["ROC-AUC"],
+            })
+
+    # ── Save final model (trained on 100% of pool) ─────────────────────────────
+    if MODEL_PATH.exists():
+        import shutil
+        shutil.copy(MODEL_PATH, BACKUP_PATH)
+    joblib.dump(pipeline, MODEL_PATH)
+    print(f"\nFinal model saved: {MODEL_PATH}")
+
+    # ── Save history to disk ───────────────────────────────────────────────────
+    INCREMENTAL_HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    INCREMENTAL_HISTORY_PATH.write_text(json.dumps(history, indent=2))
+    print(f"Incremental history saved: {INCREMENTAL_HISTORY_PATH}")
+
+    print("\n" + "="*60)
+    print(f"  Done — {rounds} rounds completed.")
+    print("="*60)
+
+    return history
+
+
 if __name__ == "__main__":
-    retrain = "--all-data" in sys.argv
-    train(retrain_with_stream=retrain)
+    if "--incremental" in sys.argv:
+        train_incremental()
+    else:
+        retrain = "--all-data" in sys.argv
+        train(retrain_with_stream=retrain)

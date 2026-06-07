@@ -579,7 +579,7 @@ def dashboard():
         </div>
 
         <div class="card" style="margin-bottom:24px">
-            <h3>Model Performance over Training Size</h3>
+            <h3>Model Performance over Training Size — Shows how model quality improves as more training data is added</h3>
             <div style="margin-bottom:16px">
                 <button id="retrain-btn" class="btn-primary" onclick="triggerRetrain()" ${d.retrain_running ? 'disabled' : ''}>
                     ${d.retrain_running ? `Retraining... (${d.retrain_count}/5)` : 'Retrain on Stream Data'}

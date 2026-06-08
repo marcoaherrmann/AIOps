@@ -64,28 +64,41 @@ Target:
 * Automatic retraining when drift is detected
 * Rollback to previous model available at any time
 
+### 8. Incremental Training
+* 90/10 split: 10% fixed validation set, 90% training pool
+* 10 cumulative rounds: 10%, 20%, ..., 100% of training pool
+* Each round evaluated against the same validation set
+* Learning curve shows model improvement with more data
+
 ---
 
 ## Project Structure
 
 ```
-airline-delay-prediction/
-│
+AIOps/
 ├── data/
-│   ├── raw/                  # Original dataset
-│   └── processed/            # Stream pool, drift reference, retrain history
-├── models/                   # Trained model + backup
-├── notebooks/                # Jupyter notebooks + mlruns
+│   ├── raw/                        # Original dataset
+│   └── processed/
+│       ├── stream_pool.csv         # 50% held-out stream
+│       ├── stream_data.csv         # Accumulated stream data
+│       ├── stream_index.txt        # Current stream position
+│       ├── train_reference.csv     # PSI reference distribution
+│       ├── retrain_history.json    # Auto-loop & manual retrain history
+│       └── incremental_history.json# Incremental training round results
+├── models/
+│   ├── xgb_model.pkl               # Current model
+│   └── xgb_model_backup.pkl        # Backup for rollback
+├── app/
+│   └── main.py                     # FastAPI app + dashboard + learning loop
 ├── src/
-│   ├── main.py               # FastAPI app + learning loop
-│   ├── train.py              # Model training
-│   ├── predict.py            # Inference logic
-│   ├── evaluate.py           # Metrics
-│   ├── drift.py              # PSI drift detection
-│   ├── data_preprocessing.py # Feature engineering
-│   ├── data_stream.py        # Stream simulation
-│   └── demo.py               # Full loop demo script
-└── mlruns/                   # MLflow experiment logs
+│   ├── train.py                    # Training (50/50 loop + 90/10 incremental)
+│   ├── predict.py                  # Inference logic
+│   ├── evaluate.py                 # Metrics
+│   ├── drift.py                    # PSI drift detection
+│   ├── data_preprocessing.py       # Feature engineering
+│   ├── data_stream.py              # Stream simulation
+│   └── demo.py                     # Full loop demo script
+└── notebooks/mlruns/               # MLflow experiment logs
 ```
 
 ---
@@ -120,7 +133,8 @@ Once the system is running, the following pages are available:
 
 | Page | URL |
 |------|-----|
-| **Dashboard** | http://localhost:8000/dashboard |
+| **Streamlit UI** | http://localhost:8501 |
+| **Monitoring Dashboard** | http://localhost:8000/dashboard |
 | **API Docs (Swagger)** | http://localhost:8000/docs |
 | **Health Check** | http://localhost:8000/health |
 | **System Status** | http://localhost:8000/status |
@@ -128,6 +142,55 @@ Once the system is running, the following pages are available:
 | **Jupyter** | http://localhost:8888 |
 
 > For access from other devices in the same network, replace `localhost` with your local IP address (e.g. `http://192.168.178.175:8000/dashboard`).
+
+---
+
+## API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Status check |
+| `/predict` | POST | Make a delay prediction |
+| `/status` | GET | Full system status |
+| `/dashboard` | GET | Live monitoring dashboard |
+| `/drift` | GET | PSI drift check |
+| `/retrain` | POST | Progressive retrain (5 rounds, live chart) |
+| `/rollback` | POST | Roll back to previous model |
+| `/reload-model` | POST | Reload model from disk |
+| `/stream/next` | POST | Stream next data chunk |
+| `/stream/reset` | POST | Reset stream to beginning |
+| `/incremental-training` | POST | Start 10-round incremental training |
+| `/incremental-status` | GET | Current incremental training progress |
+
+---
+
+## Frontend
+
+The project has two separate UIs for different audiences:
+
+### Streamlit — User Interface (Port 8501)
+**http://localhost:8501**
+
+Designed for end-users and demos:
+* Input form: Airline, Airport From/To, Day of Week, Departure Hour, Duration
+* Prediction result with probability bar (✅ On time / ⚠️ Delay likely)
+* Sidebar with live model status: ROC-AUC, retrain count, stream progress, drift status
+
+### Custom Dashboard — Monitoring (Port 8000)
+**http://localhost:8000/dashboard**
+
+Designed for ML engineers:
+* **Try a Prediction** — embedded prediction form directly in the dashboard
+* **Model ROC-AUC** — current model performance from the last retrain
+* **Training Progress / Data Stream** — dynamically shows training data fraction during retrain
+* **Drift Status** — PSI per feature with color-coded bars (green / yellow / red)
+* **Retrain History** — last 5 retrains with timestamp, train rows, worst feature, and PSI
+* **Retrain on Stream Data** — 5-round progressive retrain; chart builds up live round by round
+* **Rollback to Previous** — one-click rollback with confirmation banner
+* **Model Performance over Training Size** — line chart (ROC-AUC, F1, Accuracy) building up live
+* **Incremental Training — Learning Curve** — 10-round training via button; chart fills in round by round
+
+Auto-refreshes every 5 seconds.
 
 ---
 
@@ -141,12 +204,27 @@ This automatically streams all data, detects drift, and retrains the model. Watc
 
 ---
 
+## Incremental Training
+
+Run directly via terminal:
+
+```bash
+docker exec aiops-api-1 python src/train.py --incremental
+```
+
+Or use the **Start Incremental Training** button in the dashboard. Results are saved to `data/processed/incremental_history.json` and the learning curve chart updates after each round.
+
+---
+
 ## Reset & Retrain from Scratch
 
 **Mac/Linux:**
 ```bash
 # 1. Delete old stream data
-rm -f data/processed/stream_index.txt data/processed/stream_data.csv data/processed/retrain_history.json
+rm -f data/processed/stream_index.txt \
+      data/processed/stream_data.csv \
+      data/processed/retrain_history.json \
+      data/processed/incremental_history.json
 
 # 2. Retrain model
 docker exec aiops-api-1 python src/train.py
@@ -161,6 +239,7 @@ docker compose restart api
 del data\processed\stream_index.txt
 del data\processed\stream_data.csv
 del data\processed\retrain_history.json
+del data\processed\incremental_history.json
 
 # 2. Retrain model
 docker exec aiops-api-1 python src/train.py

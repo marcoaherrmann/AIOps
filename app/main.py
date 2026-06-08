@@ -425,15 +425,106 @@ def dashboard():
     <h1>✈️ DelayPredict — Learning Loop Dashboard</h1>
     <p class="subtitle">Auto-refreshes every 5 seconds</p>
 
+    <div class="card" style="margin-bottom:24px">
+        <h3>Try a Prediction</h3>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:16px">
+            <div>
+                <label class="form-label">Airline</label>
+                <input id="p-airline" class="form-input" type="text" placeholder="e.g. WN" maxlength="3">
+            </div>
+            <div>
+                <label class="form-label">Airport From</label>
+                <input id="p-from" class="form-input" type="text" placeholder="e.g. LAX" maxlength="3">
+            </div>
+            <div>
+                <label class="form-label">Airport To</label>
+                <input id="p-to" class="form-input" type="text" placeholder="e.g. JFK" maxlength="3">
+            </div>
+            <div>
+                <label class="form-label">Day of Week</label>
+                <select id="p-dow" class="form-input">
+                    <option value="1">Monday</option>
+                    <option value="2">Tuesday</option>
+                    <option value="3">Wednesday</option>
+                    <option value="4">Thursday</option>
+                    <option value="5" selected>Friday</option>
+                    <option value="6">Saturday</option>
+                    <option value="7">Sunday</option>
+                </select>
+            </div>
+            <div>
+                <label class="form-label">Departure Hour</label>
+                <input id="p-hour" class="form-input" type="number" min="0" max="23" value="8">
+            </div>
+            <div>
+                <label class="form-label">Duration (min)</label>
+                <input id="p-length" class="form-input" type="number" min="1" value="120">
+            </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+            <button id="pred-btn" class="btn-primary" onclick="submitPrediction()">Predict Delay</button>
+            <div id="pred-result"></div>
+        </div>
+    </div>
+
     <div id="content">Loading...</div>
 
     <style>
         .btn-primary { background:#1d4ed8;color:#fff;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:bold; }
         .btn-primary:disabled { background:#334155;color:#64748b;cursor:not-allowed; }
         .btn-primary:hover:not(:disabled) { background:#2563eb; }
+        .form-input { background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:8px 12px;border-radius:6px;width:100%;font-size:14px;box-sizing:border-box; }
+        .form-input:focus { outline:none;border-color:#38bdf8; }
+        .form-label { font-size:12px;color:#64748b;display:block;margin-bottom:4px; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
+    async function submitPrediction() {
+        const btn = document.getElementById('pred-btn');
+        btn.disabled = true;
+        btn.textContent = 'Predicting...';
+        document.getElementById('pred-result').innerHTML = '';
+
+        const body = {
+            Airline      : document.getElementById('p-airline').value.toUpperCase().trim(),
+            AirportFrom  : document.getElementById('p-from').value.toUpperCase().trim(),
+            AirportTo    : document.getElementById('p-to').value.toUpperCase().trim(),
+            DayOfWeek    : parseInt(document.getElementById('p-dow').value),
+            DepartureHour: parseInt(document.getElementById('p-hour').value),
+            Length       : parseInt(document.getElementById('p-length').value),
+        };
+
+        try {
+            const res  = await fetch('/predict', {
+                method : 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body   : JSON.stringify(body),
+            });
+            const data = await res.json();
+            if (res.ok) {
+                const delayed = data.delay_predicted;
+                const prob    = (data.delay_probability * 100).toFixed(1);
+                const color   = delayed ? '#f87171' : '#34d399';
+                const bg      = delayed ? '#450a0a' : '#064e3b';
+                const icon    = delayed ? '⚠️' : '✅';
+                const label   = delayed ? 'Delay likely' : 'On time likely';
+                document.getElementById('pred-result').innerHTML =
+                    `<div style="background:${bg};border:1px solid ${color};color:${color};padding:10px 16px;border-radius:8px;font-weight:bold;font-size:15px">
+                        ${icon} ${label} &nbsp;—&nbsp; ${prob}% probability
+                    </div>`;
+            } else {
+                document.getElementById('pred-result').innerHTML =
+                    `<div style="color:#f87171">Error: ${data.detail || 'Unknown error'}</div>`;
+            }
+        } catch(e) {
+            document.getElementById('pred-result').innerHTML =
+                `<div style="color:#f87171">Request failed</div>`;
+        }
+
+        btn.disabled = false;
+        btn.textContent = 'Predict Delay';
+    }
+
     async function startIncremental() {
         const btn = document.getElementById('inc-btn');
         btn.disabled = true;

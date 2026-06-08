@@ -10,3 +10,5 @@ notebook>=7.0
 xgboost>=2.0
 fastapi>=0.110
 uvicorn>=0.29
+streamlit>=1.35
+requests>=2.31

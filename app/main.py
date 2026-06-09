@@ -42,6 +42,7 @@ model           = load_model()
 prediction_count = 0
 incremental_training_running = False
 retrain_running = False
+is_rolled_back  = False   # True after /rollback, reset to False when a new retrain starts
 
 # Load retrain history from disk if exists
 import json
@@ -202,11 +203,12 @@ def drift():
 def _run_progressive_retrain(rounds: int = 5):
     """Train in `rounds` steps on increasing fractions of available data.
     Each completed round is saved to retrain_history so the dashboard chart
-    updates live, one point at a time."""
+    updates live, one point at a time. Each round is also logged to MLflow."""
     global model, retrain_history, retrain_running
     retrain_running = True
     try:
         import joblib
+        import mlflow
         from train import build_pipeline
         from data_preprocessing import load_data, FEATURES, TARGET
         from evaluate import compute_metrics
@@ -240,6 +242,10 @@ def _run_progressive_retrain(rounds: int = 5):
             import shutil
             shutil.copy(MODEL_PATH, BACKUP_PATH)
 
+        # MLflow setup — one run per round under the DelayPredict experiment
+        mlflow.set_tracking_uri("file:///app/notebooks/mlruns")
+        mlflow.set_experiment("DelayPredict")
+
         for i in range(1, rounds + 1):
             df_train = df_pool.sample(frac=i / rounds, random_state=42)
             pipeline  = build_pipeline()
@@ -260,6 +266,24 @@ def _run_progressive_retrain(rounds: int = 5):
             Path("data/processed/retrain_history.json").write_text(json.dumps(retrain_history))
             print(f"[Retrain] Round {i}/{rounds} done — train_size={len(df_train):,}")
 
+            # Log each round as its own MLflow run
+            with mlflow.start_run(run_name=f"XGBoost_progressive_r{i}of{rounds}_{len(df_train)}rows"):
+                mlflow.log_params({
+                    "round"        : i,
+                    "total_rounds" : rounds,
+                    "train_size"   : len(df_train),
+                    "stream_rows"  : len(df_pool) - len(df_base),
+                    "max_psi"      : snap_max_psi,
+                    "worst_feature": snap_worst,
+                })
+                mlflow.log_metrics({
+                    "accuracy" : metrics["Accuracy"],
+                    "precision": metrics["Precision"],
+                    "recall"   : metrics["Recall"],
+                    "f1"       : metrics["F1"],
+                    "roc_auc"  : metrics["ROC-AUC"],
+                })
+
             if i == rounds:
                 joblib.dump(pipeline, MODEL_PATH)
                 model = load_model()
@@ -273,11 +297,12 @@ def _run_progressive_retrain(rounds: int = 5):
 @app.post("/retrain")
 def retrain():
     """Progressive retrain: 5 rounds on increasing data fractions, live chart updates."""
-    global retrain_running, retrain_history
+    global retrain_running, retrain_history, is_rolled_back
     if retrain_running:
         return {"status": "already_running"}
     retrain_history.clear()
     Path("data/processed/retrain_history.json").write_text(json.dumps([]))
+    is_rolled_back = False   # new model replaces the rolled-back one
     threading.Thread(target=_run_progressive_retrain, daemon=True).start()
     return {"status": "started"}
 
@@ -293,12 +318,13 @@ def reload_model():
 @app.post("/rollback")
 def rollback():
     """Rollback to previous model version."""
-    global model
+    global model, is_rolled_back
     import shutil
     if not Path(BACKUP_PATH).exists():
         raise HTTPException(status_code=404, detail="No backup model found.")
     shutil.copy(BACKUP_PATH, MODEL_PATH)
     model = load_model()
+    is_rolled_back = True   # show indicator in dashboard until next retrain
     return {"status": "rolled back to previous model"}
 
 
@@ -339,6 +365,7 @@ def status():
         "retrain_count"     : len(retrain_history),
         "retrain_history"   : retrain_history[-5:],
         "retrain_running"   : retrain_running,
+        "is_rolled_back"    : is_rolled_back,
         "model"             : MODEL_PATH,
         "backup_available"  : Path(BACKUP_PATH).exists(),
     }
@@ -398,6 +425,7 @@ def dashboard():
 <head>
     <title>DelayPredict - Learning Loop Dashboard</title>
     <meta charset="utf-8">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>✈️</text></svg>">
     
     <style>
         body { font-family: Arial, sans-serif; background: #0f172a; color: #e2e8f0; margin: 0; padding: 24px; }
@@ -412,6 +440,7 @@ def dashboard():
         .badge-green { background: #064e3b; color: #34d399; }
         .badge-red { background: #450a0a; color: #f87171; }
         .badge-yellow { background: #451a03; color: #fbbf24; }
+        .badge-orange { background: #431407; color: #fb923c; }
         .psi-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #334155; }
         .psi-bar { height: 8px; background: #334155; border-radius: 4px; margin-top: 4px; }
         .psi-fill { height: 8px; border-radius: 4px; transition: width 0.5s; }
@@ -591,6 +620,13 @@ def dashboard():
             ? `<div style="background:${n.bg};border:1px solid ${n.color};color:${n.color};padding:10px 18px;border-radius:8px;margin-bottom:16px;font-weight:bold;font-size:14px">${n.msg}</div>`
             : '';
 
+        // Persistent rollback banner — stays visible until next retrain
+        const rollbackBanner = d.is_rolled_back
+            ? `<div style="background:#431407;border:1px solid #fb923c;color:#fb923c;padding:12px 18px;border-radius:8px;margin-bottom:16px;font-size:14px">
+                   <strong>↩ Rollback active</strong> — the model was rolled back to the previous version. Run a new retrain to replace it.
+               </div>`
+            : '';
+
         const lastRetrain = d.retrain_history.length > 0 ? d.retrain_history[d.retrain_history.length - 1] : null;
         const currentRocAuc = lastRetrain ? lastRetrain.roc_auc.toFixed(4) : 'N/A';
 
@@ -621,11 +657,12 @@ def dashboard():
 
         document.getElementById('content').innerHTML = `
         ${notif}
+        ${rollbackBanner}
         <div class="grid">
             <div class="card">
                 <h3>Model ROC-AUC</h3>
                 <div class="metric">${currentRocAuc}</div>
-                <div class="label">current model performance${lastRetrain ? ' (after last retrain)' : ' — no retrain yet'}</div>
+                <div class="label">${d.is_rolled_back ? '⚠ from last retrain — rollback active' : (lastRetrain ? 'current model performance (after last retrain)' : 'current model performance — no retrain yet')}</div>
             </div>
             <div class="card">
                 <h3>${displayTitle}</h3>
@@ -643,10 +680,13 @@ def dashboard():
                 <div class="metric">${d.retrain_count}</div>
                 <div class="label">times retrained</div>
                 <div style="margin-top:12px">
+                    ${d.is_rolled_back
+                        ? '<span class="badge badge-orange" style="margin-bottom:10px;display:inline-block">↩ ROLLBACK ACTIVE</span>'
+                        : ''}
                     ${d.backup_available
-                        ? `<button id="rollback-btn" class="btn-primary" onclick="triggerRollback()" style="font-size:12px;padding:6px 14px" ${window._rollingBack ? 'disabled' : ''}>
+                        ? `<div><button id="rollback-btn" class="btn-primary" onclick="triggerRollback()" style="font-size:12px;padding:6px 14px" ${window._rollingBack ? 'disabled' : ''}>
                                ${window._rollingBack ? 'Rolling back...' : '↩ Rollback to Previous'}
-                           </button>`
+                           </button></div>`
                         : '<span class="badge badge-yellow">No backup yet</span>'}
                 </div>
             </div>

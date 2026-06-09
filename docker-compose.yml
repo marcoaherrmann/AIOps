@@ -57,3 +57,12 @@ services:
       - API_URL=http://api:8000
     depends_on:
       - api
+
+  metabase:
+    image: metabase/metabase:latest
+    ports:
+      - "3000:3000"   # Metabase BI → http://localhost:3000
+    volumes:
+      - .:/app-data   # delaypredict.db accessible at /app-data/data/delaypredict.db
+    environment:
+      - MB_DB_FILE=/app-data/data/metabase.db

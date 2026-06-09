@@ -103,9 +103,11 @@ AIOps/
 ├── assets/
 │   └── dash.css                    # Dark theme override for Plotly Dash
 ├── notebooks/mlruns/               # MLflow experiment logs
+├── data/
+│   └── delaypredict.db             # SQLite database (predictions, training_runs, drift_scores)
 ├── streamlit_app.py                # Streamlit user interface (Port 8501)
 ├── dash_app.py                     # Plotly Dash analytics dashboard (Port 8050)
-└── docker-compose.yml              # 5 services: api, streamlit, dash, mlflow, notebook
+└── docker-compose.yml              # 6 services: api, streamlit, dash, mlflow, notebook, metabase
 ```
 
 ---
@@ -143,6 +145,7 @@ Once the system is running, the following pages are available:
 | **Streamlit UI** | http://localhost:8501 | End users |
 | **Monitoring Dashboard** | http://localhost:8000/dashboard | ML engineers |
 | **Data Analytics (Plotly Dash)** | http://localhost:8050 | Data analysis |
+| **Metabase BI Dashboard** | http://localhost:3000 | Data analysis / stakeholders |
 | **MLflow UI** | http://localhost:5001 | ML engineers |
 | **API Docs (Swagger)** | http://localhost:8000/docs | Developers |
 | **Health Check** | http://localhost:8000/health | — |
@@ -214,6 +217,61 @@ Designed for data analysis and presentations:
 * **Delay Rate by Airline** — top 12 airlines by volume, color-coded by delay rate
 * **Delay Rate by Day of Week** — weekday comparison
 * **Delay Rate by Departure Hour** — hourly delay pattern as area chart
+
+---
+
+## Database (SQLite)
+
+Every prediction, training run, and PSI drift check is persisted in `data/delaypredict.db` via SQLAlchemy.
+
+Three tables:
+
+| Table | Written by | Content |
+|-------|-----------|---------|
+| `predictions` | `/predict` endpoint | Airline, airports, day, hour, duration, delay result + probability |
+| `training_runs` | `train.py`, `main.py` | run_type, round, train_size, ROC-AUC, F1, Accuracy, Precision, Recall, max_psi, worst_feature |
+| `drift_scores` | Auto-loop (every stream chunk) | Feature name + PSI score per check |
+
+`run_type` values: `initial`, `retrain`, `progressive`, `incremental`, `auto`
+
+The database file is mounted into the Metabase container at `/app-data/data/delaypredict.db`.
+
+---
+
+## BI Dashboard (Metabase)
+
+**http://localhost:3000**
+
+Metabase connects directly to `delaypredict.db` and provides SQL-based dashboards over all three tables. The database is pre-configured as `DelayPredict` in Metabase on first setup.
+
+### Setup (first run only)
+1. Go to http://localhost:3000 and complete the initial Metabase account setup
+2. When prompted to add a database: select **SQLite**, set filename to `/app-data/data/delaypredict.db`
+3. Click **Connect**
+
+### Recommended queries / charts
+
+```sql
+-- Prediction volume over time
+SELECT DATE(timestamp) AS day, COUNT(*) AS predictions, 
+       ROUND(AVG(delay_probability) * 100, 1) AS avg_delay_pct
+FROM predictions GROUP BY day ORDER BY day;
+
+-- Model performance progression
+SELECT run_type, round, train_size, roc_auc, f1, accuracy
+FROM training_runs ORDER BY timestamp;
+
+-- Delay rate by airline
+SELECT airline, COUNT(*) AS total,
+       ROUND(100.0 * SUM(delay_predicted) / COUNT(*), 1) AS delay_rate_pct
+FROM predictions GROUP BY airline ORDER BY total DESC;
+
+-- PSI drift over time per feature
+SELECT DATE(timestamp) AS day, feature, ROUND(AVG(psi_score), 4) AS avg_psi
+FROM drift_scores GROUP BY day, feature ORDER BY day;
+```
+
+> **Note:** Tables are empty until the first prediction is made and the first training run completes. Run `docker exec aiops-api-1 python src/train.py` and make a prediction to populate them.
 
 ---
 

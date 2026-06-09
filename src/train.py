@@ -26,6 +26,7 @@ from xgboost import XGBClassifier
 from data_preprocessing import load_data, CATEGORICAL, NUMERIC, FEATURES, TARGET
 from evaluate import compute_metrics, print_metrics, save_metrics
 from drift import save_training_reference
+from database import log_training_run
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 MODEL_PATH              = Path("models/xgb_model.pkl")
@@ -124,6 +125,20 @@ def train(retrain_with_stream: bool = False):
     # ── Save training reference for PSI drift detection ────────────────────────
     # Always use base 50% as reference — not combined data
     save_training_reference(df_train_base[FEATURES])
+
+    # ── Log to SQLite DB ───────────────────────────────────────────────────────
+    try:
+        log_training_run(
+            run_type ="initial" if not retrain_with_stream else "retrain",
+            train_size=X_train.shape[0],
+            roc_auc  =metrics["ROC-AUC"],
+            f1       =metrics["F1"],
+            accuracy =metrics["Accuracy"],
+            precision=metrics["Precision"],
+            recall   =metrics["Recall"],
+        )
+    except Exception as e:
+        print(f"[DB] Could not log training run: {e}")
 
     # ── Save model ────────────────────────────────────────────────────────────
     MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -230,6 +245,20 @@ def train_incremental(rounds: int = 10) -> list:
         # Save partial results after each round so the API can report progress
         INCREMENTAL_HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
         INCREMENTAL_HISTORY_PATH.write_text(json.dumps(history, indent=2))
+
+        try:
+            log_training_run(
+                run_type ="incremental",
+                round    =round_num,
+                train_size=len(df_train),
+                roc_auc  =metrics["ROC-AUC"],
+                f1       =metrics["F1"],
+                accuracy =metrics["Accuracy"],
+                precision=metrics["Precision"],
+                recall   =metrics["Recall"],
+            )
+        except Exception as e:
+            print(f"[DB] Could not log incremental round: {e}")
 
         # ── Log to MLflow ──────────────────────────────────────────────────────
         with mlflow.start_run(run_name=f"incremental_round_{round_num}"):

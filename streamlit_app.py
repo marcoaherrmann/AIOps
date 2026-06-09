@@ -129,6 +129,6 @@ with st.sidebar:
         st.info("API not reachable — status unavailable.")
 
     st.divider()
-    st.link_button("🖥 Open Monitoring Dashboard", "http://localhost:8000/dashboard", use_container_width=True)
-    st.link_button("📊 Open Data Analytics",      "http://localhost:8050",           use_container_width=True)
+    st.link_button("📊 Open Data Analytics", "http://localhost:8050", use_container_width=True)
+    st.link_button("🗃️ Open BI Dashboard (Metabase)", "http://localhost:3000", use_container_width=True)
     st.caption("🔗 [MLflow UI](http://localhost:5001) · [API Docs](http://localhost:8000/docs)")

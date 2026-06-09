@@ -28,6 +28,7 @@ from pydantic import BaseModel, Field, field_validator
 from predict import load_model, build_input, predict as run_predict
 from drift import check_drift_psi
 from data_stream import stream_next_chunk, reset_stream, get_current_index, STREAM_POOL_PATH
+from database import log_prediction, log_training_run, log_drift_scores
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 MODEL_PATH   = "models/xgb_model.pkl"
@@ -112,6 +113,11 @@ def auto_loop():
     drift = result.get("drift", {})
     print(f"[Auto Loop] PSI drift check: {drift}")
 
+    try:
+        log_drift_scores(drift.get("psi_scores", {}))
+    except Exception:
+        pass
+
     # ── Retrain if drift detected ──────────────────────────────────────────────
     current_stream_pos = int(get_current_index())
     if drift.get("drift_detected"):
@@ -147,6 +153,20 @@ def auto_loop():
                 print("[Auto Loop] Retrain complete — model reloaded.")
                 # Save history to disk
                 Path("data/processed/retrain_history.json").write_text(json.dumps(retrain_history))
+                try:
+                    log_training_run(
+                        run_type     ="auto",
+                        train_size   =269691 + current_stream_pos,
+                        roc_auc      =metrics["ROC-AUC"],
+                        f1           =metrics["F1"],
+                        accuracy     =metrics["Accuracy"],
+                        precision    =metrics["Precision"],
+                        recall       =metrics["Recall"],
+                        max_psi      =drift.get("max_psi"),
+                        worst_feature=drift.get("worst_feature"),
+                    )
+                except Exception:
+                    pass
             else:
                 print(f"[Auto Loop] Retrain failed: {proc.stderr}")
         except Exception as e:
@@ -178,6 +198,19 @@ def predict_endpoint(flight: FlightInput):
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
 
     prediction_count += 1
+    try:
+        log_prediction(
+            airline          =flight.Airline,
+            airport_from     =flight.AirportFrom,
+            airport_to       =flight.AirportTo,
+            day_of_week      =flight.DayOfWeek,
+            departure_hour   =flight.DepartureHour,
+            length           =flight.Length,
+            delay_predicted  =result["delay_predicted"],
+            delay_probability=result["delay_probability"],
+        )
+    except Exception:
+        pass
     auto_loop()
 
     return PredictionOutput(
@@ -265,6 +298,21 @@ def _run_progressive_retrain(rounds: int = 5):
             })
             Path("data/processed/retrain_history.json").write_text(json.dumps(retrain_history))
             print(f"[Retrain] Round {i}/{rounds} done — train_size={len(df_train):,}")
+            try:
+                log_training_run(
+                    run_type     ="progressive",
+                    round        =i,
+                    train_size   =len(df_train),
+                    roc_auc      =metrics["ROC-AUC"],
+                    f1           =metrics["F1"],
+                    accuracy     =metrics["Accuracy"],
+                    precision    =metrics["Precision"],
+                    recall       =metrics["Recall"],
+                    max_psi      =snap_max_psi,
+                    worst_feature=snap_worst,
+                )
+            except Exception:
+                pass
 
             # Log each round as its own MLflow run
             with mlflow.start_run(run_name=f"XGBoost_progressive_r{i}of{rounds}_{len(df_train)}rows"):
@@ -732,7 +780,7 @@ def dashboard():
                 : `<canvas id="incChart" height="80"></canvas>
                    ${inc.history.length === 0 ? '<div style="color:#64748b;margin-top:12px">No data yet — click the button to run 10 cumulative training rounds and see the learning curve</div>' : ''}`}
         </div>
-        <p class="footer">Model: ${d.model} &nbsp;|&nbsp; AIOps SoSe 2026 &nbsp;|&nbsp; <a href="http://localhost:8050" style="color:#38bdf8">📊 Data Analytics</a> &nbsp;|&nbsp; <a href="http://localhost:5001" style="color:#38bdf8">MLflow</a></p>`;
+        <p class="footer">Model: ${d.model} &nbsp;|&nbsp; AIOps SoSe 2026 &nbsp;|&nbsp; <a href="http://localhost:8050" style="color:#38bdf8">📊 Data Analytics</a> &nbsp;|&nbsp; <a href="http://localhost:3000" style="color:#38bdf8">🗃️ Metabase</a> &nbsp;|&nbsp; <a href="http://localhost:5001" style="color:#38bdf8">MLflow</a></p>`;
 
     // ── Chart ─────────────────────────────────────────────────────────────────
     if (d.retrain_history && d.retrain_history.length > 0) {

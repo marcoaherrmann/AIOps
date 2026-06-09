@@ -1,0 +1,15 @@
+body, html {
+    background-color: #0f172a !important;
+    margin: 0;
+    padding: 0;
+}
+
+/* Dash loading overlay */
+._dash-loading, #react-entry-point {
+    background-color: #0f172a !important;
+}
+
+/* Button base reset */
+button {
+    cursor: pointer;
+}

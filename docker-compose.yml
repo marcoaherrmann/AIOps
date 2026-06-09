@@ -32,6 +32,19 @@ services:
       - PYTHONUNBUFFERED=1
       - MLFLOW_ALLOW_FILE_STORE=true   # required since newer MLflow versions
 
+  dash:
+    build: .
+    command: python dash_app.py
+    ports:
+      - "8050:8050"   # Plotly Dash Analytics → http://localhost:8050
+    volumes:
+      - .:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+      - API_URL=http://api:8000
+    depends_on:
+      - api
+
   streamlit:
     build: .
     command: streamlit run streamlit_app.py --server.port 8501 --server.address 0.0.0.0

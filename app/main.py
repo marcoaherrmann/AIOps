@@ -732,7 +732,7 @@ def dashboard():
                 : `<canvas id="incChart" height="80"></canvas>
                    ${inc.history.length === 0 ? '<div style="color:#64748b;margin-top:12px">No data yet — click the button to run 10 cumulative training rounds and see the learning curve</div>' : ''}`}
         </div>
-        <p class="footer">Model: ${d.model} &nbsp;|&nbsp; AIOps SoSe 2026</p>`;
+        <p class="footer">Model: ${d.model} &nbsp;|&nbsp; AIOps SoSe 2026 &nbsp;|&nbsp; <a href="http://localhost:8050" style="color:#38bdf8">📊 Data Analytics</a> &nbsp;|&nbsp; <a href="http://localhost:5001" style="color:#38bdf8">MLflow</a></p>`;
 
     // ── Chart ─────────────────────────────────────────────────────────────────
     if (d.retrain_history && d.retrain_history.length > 0) {

@@ -54,6 +54,7 @@ Target:
 
 ### 5. Experiment Tracking
 * MLflow tracks every run and retrain with parameters and metrics
+* Two experiments: `DelayPredict` (progressive retrains) and `DelayPredict_Incremental` (learning curve rounds)
 
 ### 6. Deployment
 * FastAPI endpoint (`/predict`) for inference
@@ -63,6 +64,7 @@ Target:
 * PSI drift detection on Airline, DayOfWeek, DepartureHour
 * Automatic retraining when drift is detected
 * Rollback to previous model available at any time
+* Rollback state is visible in the dashboard until the next retrain
 
 ### 8. Incremental Training
 * 90/10 split: 10% fixed validation set, 90% training pool
@@ -98,7 +100,12 @@ AIOps/
 │   ├── data_preprocessing.py       # Feature engineering
 │   ├── data_stream.py              # Stream simulation
 │   └── demo.py                     # Full loop demo script
-└── notebooks/mlruns/               # MLflow experiment logs
+├── assets/
+│   └── dash.css                    # Dark theme override for Plotly Dash
+├── notebooks/mlruns/               # MLflow experiment logs
+├── streamlit_app.py                # Streamlit user interface (Port 8501)
+├── dash_app.py                     # Plotly Dash analytics dashboard (Port 8050)
+└── docker-compose.yml              # 5 services: api, streamlit, dash, mlflow, notebook
 ```
 
 ---
@@ -131,15 +138,16 @@ docker compose restart api
 
 Once the system is running, the following pages are available:
 
-| Page | URL |
-|------|-----|
-| **Streamlit UI** | http://localhost:8501 |
-| **Monitoring Dashboard** | http://localhost:8000/dashboard |
-| **API Docs (Swagger)** | http://localhost:8000/docs |
-| **Health Check** | http://localhost:8000/health |
-| **System Status** | http://localhost:8000/status |
-| **MLflow UI** | http://localhost:5001 |
-| **Jupyter** | http://localhost:8888 |
+| Page | URL | Audience |
+|------|-----|----------|
+| **Streamlit UI** | http://localhost:8501 | End users |
+| **Monitoring Dashboard** | http://localhost:8000/dashboard | ML engineers |
+| **Data Analytics (Plotly Dash)** | http://localhost:8050 | Data analysis |
+| **MLflow UI** | http://localhost:5001 | ML engineers |
+| **API Docs (Swagger)** | http://localhost:8000/docs | Developers |
+| **Health Check** | http://localhost:8000/health | — |
+| **System Status** | http://localhost:8000/status | — |
+| **Jupyter** | http://localhost:8888 | — |
 
 > For access from other devices in the same network, replace `localhost` with your local IP address (e.g. `http://192.168.178.175:8000/dashboard`).
 
@@ -151,7 +159,7 @@ Once the system is running, the following pages are available:
 |----------|--------|-------------|
 | `/health` | GET | Status check |
 | `/predict` | POST | Make a delay prediction |
-| `/status` | GET | Full system status |
+| `/status` | GET | Full system status (incl. `is_rolled_back`) |
 | `/dashboard` | GET | Live monitoring dashboard |
 | `/drift` | GET | PSI drift check |
 | `/retrain` | POST | Progressive retrain (5 rounds, live chart) |
@@ -166,7 +174,7 @@ Once the system is running, the following pages are available:
 
 ## Frontend
 
-The project has two separate UIs for different audiences:
+The project has three separate UIs for different audiences:
 
 ### Streamlit — User Interface (Port 8501)
 **http://localhost:8501**
@@ -174,7 +182,7 @@ The project has two separate UIs for different audiences:
 Designed for end-users and demos:
 * Input form: Airline, Airport From/To, Day of Week, Departure Hour, Duration
 * Prediction result with probability bar (✅ On time / ⚠️ Delay likely)
-* Sidebar with live model status: ROC-AUC, retrain count, stream progress, drift status
+* Sidebar with buttons linking to the Monitoring Dashboard and Data Analytics
 
 ### Custom Dashboard — Monitoring (Port 8000)
 **http://localhost:8000/dashboard**
@@ -182,6 +190,7 @@ Designed for end-users and demos:
 Designed for ML engineers:
 * **Try a Prediction** — embedded prediction form directly in the dashboard
 * **Model ROC-AUC** — current model performance from the last retrain
+* **Rollback Indicator** — orange banner and badge visible whenever the model has been rolled back; disappears after the next retrain
 * **Training Progress / Data Stream** — dynamically shows training data fraction during retrain
 * **Drift Status** — PSI per feature with color-coded bars (green / yellow / red)
 * **Retrain History** — last 5 retrains with timestamp, train rows, worst feature, and PSI
@@ -191,6 +200,37 @@ Designed for ML engineers:
 * **Incremental Training — Learning Curve** — 10-round training via button; chart fills in round by round
 
 Auto-refreshes every 5 seconds.
+
+### Plotly Dash — Data Analytics (Port 8050)
+**http://localhost:8050**
+
+Designed for data analysis and presentations:
+* **Dataset KPIs** — total flights, overall delay rate, number of airlines and routes
+* **Live Model KPIs** — current ROC-AUC, F1, retrain count, incremental ROC (auto-refreshes every 10s)
+* **Training Controls** — Retrain, Incremental Training, and Rollback buttons with live status feedback
+* **Model Performance Chart** — ROC-AUC, F1, Accuracy over progressive retrain rounds
+* **Incremental Learning Curve** — metrics across all 10 incremental training rounds
+* **PSI Drift per Feature** — horizontal bar chart with monitor/retrain threshold lines
+* **Delay Rate by Airline** — top 12 airlines by volume, color-coded by delay rate
+* **Delay Rate by Day of Week** — weekday comparison
+* **Delay Rate by Departure Hour** — hourly delay pattern as area chart
+
+---
+
+## Experiment Tracking (MLflow)
+
+MLflow logs every training run automatically. Access the UI at **http://localhost:5001**.
+
+Two experiments are tracked:
+
+| Experiment | Description |
+|------------|-------------|
+| `DelayPredict` | Initial training + all progressive retrain rounds |
+| `DelayPredict_Incremental` | All 10 rounds of incremental training (one run per round) |
+
+Each run stores: model parameters, train/validation size, ROC-AUC, F1, Accuracy, Precision, Recall, and the model artifact.
+
+> **Note:** MLflow requires `MLFLOW_ALLOW_FILE_STORE=true` (set in `docker-compose.yml` for all services) since newer MLflow versions no longer support the file-based backend by default.
 
 ---
 
@@ -212,7 +252,7 @@ Run directly via terminal:
 docker exec aiops-api-1 python src/train.py --incremental
 ```
 
-Or use the **Start Incremental Training** button in the dashboard. Results are saved to `data/processed/incremental_history.json` and the learning curve chart updates after each round.
+Or use the **Start Incremental Training** button in the Monitoring Dashboard or Data Analytics. Results are saved to `data/processed/incremental_history.json` and the learning curve chart updates after each round.
 
 ---
 

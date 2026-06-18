@@ -80,18 +80,20 @@ Target:
 AIOps/
 ├── data/
 │   ├── raw/                        # Original dataset
-│   └── processed/
-│       ├── stream_pool.csv         # 50% held-out stream
-│       ├── stream_data.csv         # Accumulated stream data
-│       ├── stream_index.txt        # Current stream position
-│       ├── train_reference.csv     # PSI reference distribution
-│       ├── retrain_history.json    # Auto-loop & manual retrain history
-│       └── incremental_history.json# Incremental training round results
+│   ├── processed/
+│   │   ├── stream_pool.csv         # 50% held-out stream
+│   │   ├── stream_data.csv         # Accumulated stream data
+│   │   ├── stream_index.txt        # Current stream position
+│   │   ├── train_reference.csv     # PSI reference distribution
+│   │   ├── retrain_history.json    # Auto-loop & manual retrain history
+│   │   └── incremental_history.json# Incremental training round results
+│   ├── delaypredict.db             # SQLite database (predictions, training_runs, drift_scores)
+│   └── metabase.db/                # Metabase internal config
 ├── models/
 │   ├── xgb_model.pkl               # Current model
 │   └── xgb_model_backup.pkl        # Backup for rollback
 ├── app/
-│   └── main.py                     # FastAPI app + dashboard + learning loop
+│   └── main.py                     # FastAPI app + learning loop
 ├── src/
 │   ├── train.py                    # Training (50/50 loop + 90/10 incremental)
 │   ├── predict.py                  # Inference logic
@@ -99,14 +101,14 @@ AIOps/
 │   ├── drift.py                    # PSI drift detection
 │   ├── data_preprocessing.py       # Feature engineering
 │   ├── data_stream.py              # Stream simulation
+│   ├── database.py                 # SQLAlchemy SQLite persistence
+│   ├── seed_predictions.py         # Seed predictions table with demo data
 │   └── demo.py                     # Full loop demo script
 ├── assets/
 │   └── dash.css                    # Dark theme override for Plotly Dash
 ├── notebooks/mlruns/               # MLflow experiment logs
-├── data/
-│   └── delaypredict.db             # SQLite database (predictions, training_runs, drift_scores)
 ├── streamlit_app.py                # Streamlit user interface (Port 8501)
-├── dash_app.py                     # Plotly Dash analytics dashboard (Port 8050)
+├── dash_app.py                     # Plotly Dash analytics & controls (Port 8050)
 └── docker-compose.yml              # 6 services: api, streamlit, dash, mlflow, notebook, metabase
 ```
 
@@ -127,12 +129,22 @@ cd AIOps
 docker compose up -d
 ```
 
-### 3. Initial training
+The API container automatically trains the model on startup (~45 seconds). The API is available once training completes. Watch progress with:
 
 ```bash
-docker exec aiops-api-1 python src/train.py
-docker compose restart api
+docker logs -f aiops-api-1
 ```
+
+### 3. Seed demo data (optional)
+
+To populate the Metabase dashboard with realistic prediction history:
+
+```bash
+docker exec aiops-api-1 python src/seed_predictions.py           # 1000 rows
+docker exec aiops-api-1 python src/seed_predictions.py --rows 2000
+```
+
+Timestamps are distributed over the last 7 days for realistic charts.
 
 ---
 
@@ -143,16 +155,15 @@ Once the system is running, the following pages are available:
 | Page | URL | Audience |
 |------|-----|----------|
 | **Streamlit UI** | http://localhost:8501 | End users |
-| **Monitoring Dashboard** | http://localhost:8000/dashboard | ML engineers |
+| **Metabase BI Dashboard** | http://localhost:3000 | ML engineers / stakeholders |
 | **Data Analytics (Plotly Dash)** | http://localhost:8050 | Data analysis |
-| **Metabase BI Dashboard** | http://localhost:3000 | Data analysis / stakeholders |
 | **MLflow UI** | http://localhost:5001 | ML engineers |
 | **API Docs (Swagger)** | http://localhost:8000/docs | Developers |
 | **Health Check** | http://localhost:8000/health | — |
 | **System Status** | http://localhost:8000/status | — |
 | **Jupyter** | http://localhost:8888 | — |
 
-> For access from other devices in the same network, replace `localhost` with your local IP address (e.g. `http://192.168.178.175:8000/dashboard`).
+> For access from other devices in the same network, replace `localhost` with your local IP address.
 
 ---
 
@@ -163,9 +174,8 @@ Once the system is running, the following pages are available:
 | `/health` | GET | Status check |
 | `/predict` | POST | Make a delay prediction |
 | `/status` | GET | Full system status (incl. `is_rolled_back`) |
-| `/dashboard` | GET | Live monitoring dashboard |
 | `/drift` | GET | PSI drift check |
-| `/retrain` | POST | Progressive retrain (5 rounds, live chart) |
+| `/retrain` | POST | Progressive retrain (5 rounds, async) |
 | `/rollback` | POST | Roll back to previous model |
 | `/reload-model` | POST | Reload model from disk |
 | `/stream/next` | POST | Stream next data chunk |
@@ -185,44 +195,44 @@ The project has three separate UIs for different audiences:
 Designed for end-users and demos:
 * Input form: Airline, Airport From/To, Day of Week, Departure Hour, Duration
 * Prediction result with probability bar (✅ On time / ⚠️ Delay likely)
-* Sidebar with buttons linking to the Monitoring Dashboard and Data Analytics
+* Sidebar with links to the Metabase Dashboard and Data Analytics
 
-### Custom Dashboard — Monitoring (Port 8000)
-**http://localhost:8000/dashboard**
+### Metabase — BI Monitoring Dashboard (Port 3000)
+**http://localhost:3000**
 
-Designed for ML engineers:
-* **Try a Prediction** — embedded prediction form directly in the dashboard
-* **Model ROC-AUC** — current model performance from the last retrain
-* **Rollback Indicator** — orange banner and badge visible whenever the model has been rolled back; disappears after the next retrain
-* **Training Progress / Data Stream** — dynamically shows training data fraction during retrain
-* **Drift Status** — PSI per feature with color-coded bars (green / yellow / red)
-* **Retrain History** — last 5 retrains with timestamp, train rows, worst feature, and PSI
-* **Retrain on Stream Data** — 5-round progressive retrain; chart builds up live round by round
-* **Rollback to Previous** — one-click rollback with confirmation banner
-* **Model Performance over Training Size** — line chart (ROC-AUC, F1, Accuracy) building up live
-* **Incremental Training — Learning Curve** — 10-round training via button; chart fills in round by round
+Designed for ML engineers and stakeholders. Connects directly to `delaypredict.db` and provides SQL-based dashboards over all three tables.
 
-Auto-refreshes every 5 seconds.
+KPI tiles:
+* Current ROC-AUC, Total Predictions, Last Training Run Type
 
-### Plotly Dash — Data Analytics (Port 8050)
+Charts:
+* **Model Performance over Training Size** — ROC-AUC, F1, Accuracy per progressive retrain round
+* **Incremental Learning Curve** — metrics across all 10 incremental training rounds
+* **PSI Drift per Feature** — latest PSI scores per feature
+* **Run Type Breakdown** — count and average ROC-AUC per run type
+* **Delay Rate by Airline / Day of Week / Departure Hour** — from the predictions table
+* **Delay Probability Distribution** — bucketed histogram of model confidence
+
+> **Setup (first run only):** Go to http://localhost:3000, complete the account setup, then add a SQLite database with filename `/app-data/data/delaypredict.db`.
+
+### Plotly Dash — Dataset Analytics & Training Controls (Port 8050)
 **http://localhost:8050**
 
-Designed for data analysis and presentations:
-* **Dataset KPIs** — total flights, overall delay rate, number of airlines and routes
-* **Live Model KPIs** — current ROC-AUC, F1, retrain count, incremental ROC (auto-refreshes every 10s)
-* **Training Controls** — Retrain, Incremental Training, and Rollback buttons with live status feedback
-* **Model Performance Chart** — ROC-AUC, F1, Accuracy over progressive retrain rounds
-* **Incremental Learning Curve** — metrics across all 10 incremental training rounds
-* **PSI Drift per Feature** — horizontal bar chart with monitor/retrain threshold lines
+Designed for data analysis and presentations. Shows static dataset statistics and provides buttons to trigger training operations.
+
+* **Dataset KPIs** — total flights (539k), overall delay rate, number of airlines and routes (from CSV)
+* **Training Controls** — Retrain, Incremental Training, and Rollback buttons with `?` tooltips and live status feedback
+* **Rollback Banner** — orange notice when the model has been rolled back; disappears after the next retrain
 * **Delay Rate by Airline** — top 12 airlines by volume, color-coded by delay rate
 * **Delay Rate by Day of Week** — weekday comparison
 * **Delay Rate by Departure Hour** — hourly delay pattern as area chart
+* Link to Metabase for live model metrics
 
 ---
 
 ## Database (SQLite)
 
-Every prediction, training run, and PSI drift check is persisted in `data/delaypredict.db` via SQLAlchemy.
+Every prediction, training run, and PSI drift check is persisted in `data/delaypredict.db` via SQLAlchemy (`src/database.py`).
 
 Three tables:
 
@@ -234,44 +244,9 @@ Three tables:
 
 `run_type` values: `initial`, `retrain`, `progressive`, `incremental`, `auto`
 
+Each time a progressive retrain or incremental training starts, old entries of that type are cleared first. This lets Metabase show the learning curve being built up round by round in real time.
+
 The database file is mounted into the Metabase container at `/app-data/data/delaypredict.db`.
-
----
-
-## BI Dashboard (Metabase)
-
-**http://localhost:3000**
-
-Metabase connects directly to `delaypredict.db` and provides SQL-based dashboards over all three tables. The database is pre-configured as `DelayPredict` in Metabase on first setup.
-
-### Setup (first run only)
-1. Go to http://localhost:3000 and complete the initial Metabase account setup
-2. When prompted to add a database: select **SQLite**, set filename to `/app-data/data/delaypredict.db`
-3. Click **Connect**
-
-### Recommended queries / charts
-
-```sql
--- Prediction volume over time
-SELECT DATE(timestamp) AS day, COUNT(*) AS predictions, 
-       ROUND(AVG(delay_probability) * 100, 1) AS avg_delay_pct
-FROM predictions GROUP BY day ORDER BY day;
-
--- Model performance progression
-SELECT run_type, round, train_size, roc_auc, f1, accuracy
-FROM training_runs ORDER BY timestamp;
-
--- Delay rate by airline
-SELECT airline, COUNT(*) AS total,
-       ROUND(100.0 * SUM(delay_predicted) / COUNT(*), 1) AS delay_rate_pct
-FROM predictions GROUP BY airline ORDER BY total DESC;
-
--- PSI drift over time per feature
-SELECT DATE(timestamp) AS day, feature, ROUND(AVG(psi_score), 4) AS avg_psi
-FROM drift_scores GROUP BY day, feature ORDER BY day;
-```
-
-> **Note:** Tables are empty until the first prediction is made and the first training run completes. Run `docker exec aiops-api-1 python src/train.py` and make a prediction to populate them.
 
 ---
 
@@ -298,7 +273,7 @@ Each run stores: model parameters, train/validation size, ROC-AUC, F1, Accuracy,
 docker exec aiops-api-1 python src/demo.py
 ```
 
-This automatically streams all data, detects drift, and retrains the model. Watch the dashboard update live.
+This automatically streams all data, detects drift, and retrains the model. Watch Metabase update live.
 
 ---
 
@@ -310,7 +285,7 @@ Run directly via terminal:
 docker exec aiops-api-1 python src/train.py --incremental
 ```
 
-Or use the **Start Incremental Training** button in the Monitoring Dashboard or Data Analytics. Results are saved to `data/processed/incremental_history.json` and the learning curve chart updates after each round.
+Or use the **Start Incremental Training** button in the Plotly Dash analytics dashboard. Results appear in the Metabase learning curve chart after each round.
 
 ---
 
@@ -324,10 +299,7 @@ rm -f data/processed/stream_index.txt \
       data/processed/retrain_history.json \
       data/processed/incremental_history.json
 
-# 2. Retrain model
-docker exec aiops-api-1 python src/train.py
-
-# 3. Restart API
+# 2. Restart API (triggers automatic retraining)
 docker compose restart api
 ```
 
@@ -339,10 +311,7 @@ del data\processed\stream_data.csv
 del data\processed\retrain_history.json
 del data\processed\incremental_history.json
 
-# 2. Retrain model
-docker exec aiops-api-1 python src/train.py
-
-# 3. Restart API
+# 2. Restart API (triggers automatic retraining)
 docker compose restart api
 ```
 

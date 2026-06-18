@@ -22,13 +22,12 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field, field_validator
 
 from predict import load_model, build_input, predict as run_predict
 from drift import check_drift_psi
 from data_stream import stream_next_chunk, reset_stream, get_current_index, STREAM_POOL_PATH
-from database import log_prediction, log_training_run, log_drift_scores
+from database import log_prediction, log_training_run, log_drift_scores, clear_training_runs
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 MODEL_PATH   = "models/xgb_model.pkl"
@@ -264,11 +263,22 @@ def _run_progressive_retrain(rounds: int = 5):
         X_test = df_test[FEATURES]
         y_test = df_test[TARGET]
 
+        # Clear old progressive runs so Metabase shows fresh progress
+        try:
+            clear_training_runs("progressive")
+        except Exception:
+            pass
+
         # Compute PSI once against the training reference
         drift_snap   = check_drift_psi(df_stream) if df_stream is not None else {}
         snap_psi     = drift_snap.get("psi_scores", {})
         snap_max_psi = drift_snap.get("max_psi")
         snap_worst   = drift_snap.get("worst_feature", "—")
+
+        try:
+            log_drift_scores(snap_psi)
+        except Exception:
+            pass
 
         # Backup current model before first round
         if Path(MODEL_PATH).exists():
@@ -464,10 +474,17 @@ def incremental_status():
     }
 
 
-@app.get("/dashboard", response_class=HTMLResponse)
+@app.get("/dashboard")
 def dashboard():
-    """Live dashboard showing loop status, drift, and model metrics."""
-    return """
+    """Dashboard moved to Plotly Dash (port 8050) and Metabase (port 3000)."""
+    return {
+        "plotly_dash": "http://localhost:8050",
+        "metabase"   : "http://localhost:3000",
+    }
+
+
+def _old_html_dashboard_unused():
+    """
 <!DOCTYPE html>
 <html>
 <head>
@@ -850,4 +867,4 @@ def dashboard():
     </script>
 </body>
 </html>
-"""
+"""  # end _old_html_dashboard_unused

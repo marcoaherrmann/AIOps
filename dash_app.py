@@ -1,30 +1,26 @@
 """
 DelayPredict — Plotly Dash Data Analytics Dashboard
 -----------------------------------------------------
-Data-focused visualization: dataset statistics, model performance over
-training rounds, incremental learning curve, and PSI drift per feature.
-Includes training controls (retrain, incremental training, rollback).
+Focus: static dataset analytics (from raw CSV, 539k flights) +
+       training controls (Retrain, Incremental, Rollback).
+
+Model performance history, learning curves, and PSI drift are in Metabase (port 3000).
 
 Runs on port 8050.
 """
 
 import os
-import json
 import requests as http
-import pandas as pd
 from pathlib import Path
-from dash import Dash, html, dcc, Output, Input, State, no_update
+from dash import Dash, html, dcc, Output, Input, no_update
 import plotly.graph_objects as go
+import pandas as pd
 
 # ── Config ────────────────────────────────────────────────────────────────────
-API_URL = os.getenv("API_URL", "http://api:8000")
+API_URL      = os.getenv("API_URL", "http://api:8000")
+RAW_DATA_PATH = Path("/app/data/raw/airlines_delay.csv")
 
-# ── Paths ─────────────────────────────────────────────────────────────────────
-RETRAIN_HISTORY_PATH     = Path("/app/data/processed/retrain_history.json")
-INCREMENTAL_HISTORY_PATH = Path("/app/data/processed/incremental_history.json")
-RAW_DATA_PATH            = Path("/app/data/raw/airlines_delay.csv")
-
-# ── Theme colors (matches the HTML dashboard) ─────────────────────────────────
+# ── Theme ─────────────────────────────────────────────────────────────────────
 BG     = "#0f172a"
 CARD   = "#1e293b"
 BORDER = "#334155"
@@ -49,13 +45,13 @@ def base_layout(title="", **kwargs):
         **kwargs,
     )
 
-# ── Pre-compute static dataset aggregations (loaded once at startup) ───────────
+# ── Pre-compute static dataset aggregations (loaded once at startup) ──────────
 df = pd.read_csv(RAW_DATA_PATH)
 df["DepartureHour"] = df["Time"] // 60
 df["Route"]         = df["AirportFrom"] + "-" + df["AirportTo"]
 
-DAY_NAMES = {1: "Mon", 2: "Tue", 3: "Wed", 4: "Thu", 5: "Fri", 6: "Sat", 7: "Sun"}
-df_dow = (
+DAY_NAMES  = {1: "Mon", 2: "Tue", 3: "Wed", 4: "Thu", 5: "Fri", 6: "Sat", 7: "Sun"}
+df_dow     = (
     df.groupby("DayOfWeek")["Delay"].mean().reset_index()
       .assign(day=lambda x: x["DayOfWeek"].map(DAY_NAMES))
 )
@@ -96,23 +92,25 @@ def kpi(title, value, sub=""):
         html.Div(sub,   style={"color": MUTED, "fontSize": "12px", "marginTop": "4px"}),
     ])
 
-def btn(label, btn_id, color=BLUE):
-    return html.Button(label, id=btn_id, n_clicks=0, style={
-        "background": "#1d4ed8", "color": "#fff", "border": "none",
-        "padding": "10px 20px", "borderRadius": "8px", "cursor": "pointer",
-        "fontSize": "14px", "fontWeight": "bold", "marginRight": "12px",
-    })
+def btn(label, btn_id, tooltip=""):
+    return html.Div([
+        html.Button(label, id=btn_id, n_clicks=0, style={
+            "background": "#1d4ed8", "color": "#fff", "border": "none",
+            "padding": "10px 20px", "borderRadius": "8px", "cursor": "pointer",
+            "fontSize": "14px", "fontWeight": "bold",
+        }),
+        html.Span("?", title=tooltip, style={
+            "display": "inline-flex", "alignItems": "center", "justifyContent": "center",
+            "width": "18px", "height": "18px", "borderRadius": "50%",
+            "background": BORDER, "color": MUTED, "fontSize": "11px",
+            "cursor": "help", "marginLeft": "6px", "fontWeight": "bold",
+            "flexShrink": "0",
+        }),
+    ], style={"display": "inline-flex", "alignItems": "center", "marginRight": "16px"})
 
 GRID2 = {"display": "grid", "gridTemplateColumns": "1fr 1fr", "gap": "16px", "marginBottom": "24px"}
+GRID3 = {"display": "grid", "gridTemplateColumns": "1fr 1fr 1fr", "gap": "16px", "marginBottom": "24px"}
 GRID4 = {"display": "grid", "gridTemplateColumns": "repeat(4, 1fr)", "gap": "16px", "marginBottom": "24px"}
-
-def empty_fig(title=""):
-    """Dark empty figure shown before the first callback fires."""
-    fig = go.Figure(layout=base_layout(title))
-    fig.add_annotation(text="Loading...", x=0.5, y=0.5,
-                       xref="paper", yref="paper", showarrow=False,
-                       font=dict(color=MUTED, size=13))
-    return fig
 
 # ── Layout ────────────────────────────────────────────────────────────────────
 app.layout = html.Div(
@@ -121,12 +119,20 @@ app.layout = html.Div(
     children=[
         html.H1("✈️ DelayPredict — Data Analytics",
                 style={"color": BLUE, "marginBottom": "4px"}),
-        html.P("Dataset statistics · Model performance · Drift analysis",
-               style={"color": MUTED, "fontSize": "14px", "marginBottom": "32px"}),
+        html.P("Dataset statistics (539k US flights) · Training controls",
+               style={"color": MUTED, "fontSize": "14px", "marginBottom": "4px"}),
+        html.P([
+            "Model performance, learning curves & drift history → ",
+            html.A("Metabase BI Dashboard", href="http://localhost:3000",
+                   target="_blank", style={"color": BLUE}),
+        ], style={"color": MUTED, "fontSize": "13px", "marginBottom": "32px"}),
 
         dcc.Interval(id="interval", interval=10_000, n_intervals=0),
 
-        # Static dataset KPIs
+        # ── Rollback banner (hidden by default) ───────────────────────────────
+        html.Div(id="rollback-banner"),
+
+        # ── Static dataset KPIs ───────────────────────────────────────────────
         html.Div([
             kpi("Total Flights",  f"{TOTAL_ROWS:,}",    "in dataset"),
             kpi("Delay Rate",     f"{DELAY_RATE:.1f}%", "flights delayed > 15 min"),
@@ -134,39 +140,37 @@ app.layout = html.Div(
             kpi("Routes",         f"{TOTAL_ROUTES:,}",  "unique A→B pairs"),
         ], style=GRID4),
 
-        # Live model KPIs
-        html.Div(id="live-kpis", style=GRID4),
-
         # ── Training Controls ─────────────────────────────────────────────────
         card([
             html.H3("Training Controls",
                     style={"color": MUTED, "fontSize": "13px", "textTransform": "uppercase",
                            "letterSpacing": "1px", "margin": "0 0 16px 0"}),
             html.Div([
-                btn("🔄 Retrain on Stream Data",   "btn-retrain"),
-                btn("📈 Start Incremental Training", "btn-incremental"),
-                btn("↩ Rollback to Previous",       "btn-rollback"),
+                btn("🔄 Retrain on Stream Data",    "btn-retrain",
+                    "Trains the model in 5 progressive rounds on the original data plus any newly streamed data. "
+                    "Each round uses a larger fraction of the available data. "
+                    "Triggers automatically when PSI drift exceeds the threshold."),
+                btn("📈 Start Incremental Training", "btn-incremental",
+                    "Runs 10 cumulative training rounds on a 90/10 split. "
+                    "Round 1 uses 10% of the training pool, Round 10 uses 100%. "
+                    "Shows how model performance improves as more data is added."),
+                btn("↩ Rollback to Previous",        "btn-rollback",
+                    "Replaces the current model with the last backup. "
+                    "Use this if a retrain produced worse results. "
+                    "A new retrain will overwrite the backup again."),
             ], style={"display": "flex", "flexWrap": "wrap", "gap": "12px", "marginBottom": "12px"}),
             html.Div(id="ctrl-status", style={"fontSize": "13px", "color": MUTED}),
         ], style={"marginBottom": "24px"}),
 
-        # Model performance + incremental learning
+        # ── Dataset analytics ─────────────────────────────────────────────────
         html.Div([
-            card(dcc.Graph(id="retrain-chart",     figure=empty_fig("MODEL PERFORMANCE OVER TRAINING SIZE"),        config={"displayModeBar": False}, style={"height": "320px"})),
-            card(dcc.Graph(id="incremental-chart", figure=empty_fig("INCREMENTAL LEARNING CURVE (90/10, 10 ROUNDS)"), config={"displayModeBar": False}, style={"height": "320px"})),
+            card(dcc.Graph(id="airline-chart", config={"displayModeBar": False}, style={"height": "340px"})),
+            card(dcc.Graph(id="dow-chart",     config={"displayModeBar": False}, style={"height": "340px"})),
         ], style=GRID2),
 
-        # PSI drift + airline delay rate
         html.Div([
-            card(dcc.Graph(id="psi-chart",     figure=empty_fig("PSI DRIFT PER FEATURE (LATEST)"),         config={"displayModeBar": False}, style={"height": "300px"})),
-            card(dcc.Graph(id="airline-chart", figure=empty_fig("DELAY RATE BY AIRLINE (TOP 12 BY VOLUME)"), config={"displayModeBar": False}, style={"height": "300px"})),
-        ], style=GRID2),
-
-        # Delay by day + by hour
-        html.Div([
-            card(dcc.Graph(id="dow-chart",  figure=empty_fig("DELAY RATE BY DAY OF WEEK"),  config={"displayModeBar": False}, style={"height": "280px"})),
-            card(dcc.Graph(id="hour-chart", figure=empty_fig("DELAY RATE BY DEPARTURE HOUR"), config={"displayModeBar": False}, style={"height": "280px"})),
-        ], style=GRID2),
+            card(dcc.Graph(id="hour-chart", config={"displayModeBar": False}, style={"height": "300px"})),
+        ], style={"marginBottom": "24px"}),
 
         html.P("DelayPredict · AIOps SoSe 2026",
                style={"color": MUTED, "fontSize": "12px", "marginTop": "8px"}),
@@ -174,15 +178,30 @@ app.layout = html.Div(
 )
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
-def load_json(path):
+# ── Rollback banner callback ──────────────────────────────────────────────────
+@app.callback(Output("rollback-banner", "children"), Input("interval", "n_intervals"))
+def update_rollback_banner(_):
     try:
-        return json.loads(path.read_text()) if path.exists() else []
+        status = http.get(f"{API_URL}/status", timeout=3).json()
     except Exception:
-        return []
+        return None
+
+    if not status.get("is_rolled_back"):
+        return None
+
+    return html.Div([
+        html.Strong("↩ Rollback active"),
+        html.Span(" — the model was rolled back to the previous version. "
+                  "Run a new retrain to replace it.",
+                  style={"fontWeight": "normal"}),
+    ], style={
+        "background": "#431407", "border": f"1px solid {ORANGE}",
+        "color": ORANGE, "padding": "12px 18px", "borderRadius": "8px",
+        "marginBottom": "16px", "fontSize": "14px",
+    })
 
 
-# ── Button callbacks ──────────────────────────────────────────────────────────
+# ── Button callback ───────────────────────────────────────────────────────────
 @app.callback(
     Output("ctrl-status", "children"),
     Output("ctrl-status", "style"),
@@ -194,31 +213,23 @@ def load_json(path):
 def handle_buttons(n_retrain, n_incremental, n_rollback):
     from dash import ctx
     triggered = ctx.triggered_id
-
     try:
         if triggered == "btn-retrain":
             res = http.post(f"{API_URL}/retrain", timeout=5).json()
-            if res.get("status") == "already_running":
-                msg, color = "⏳ Retrain is already running — check the charts below", YELLOW
-            else:
-                msg, color = "✅ Retrain started — charts will update live every 10 seconds", GREEN
-
+            msg, color = ("⏳ Retrain already running", YELLOW) if res.get("status") == "already_running" \
+                    else ("✅ Retrain started — check Metabase for live metrics", GREEN)
         elif triggered == "btn-incremental":
             res = http.post(f"{API_URL}/incremental-training", timeout=5).json()
-            if res.get("status") == "already_running":
-                msg, color = f"⏳ Incremental training already running — round {res.get('rounds_done', '?')}/10", YELLOW
-            else:
-                msg, color = "✅ Incremental training started — 10 rounds, charts will update live", GREEN
-
+            msg, color = (f"⏳ Already running — round {res.get('rounds_done','?')}/10", YELLOW) \
+                    if res.get("status") == "already_running" \
+                    else ("✅ Incremental training started — 10 rounds", GREEN)
         elif triggered == "btn-rollback":
-            res = http.post(f"{API_URL}/rollback", timeout=5).json()
-            msg, color = "↩ Rolled back to previous model version", ORANGE
-
+            http.post(f"{API_URL}/rollback", timeout=5)
+            msg, color = "↩ Rolled back to previous model", ORANGE
         else:
             return no_update, no_update
-
     except Exception as e:
-        msg, color = f"❌ Could not reach API: {e}", RED
+        msg, color = f"❌ API not reachable: {e}", RED
 
     style = {"fontSize": "13px", "color": color, "fontWeight": "bold",
              "background": CARD, "padding": "8px 12px", "borderRadius": "6px",
@@ -226,117 +237,7 @@ def handle_buttons(n_retrain, n_incremental, n_rollback):
     return msg, style
 
 
-# ── Live KPI callback ─────────────────────────────────────────────────────────
-@app.callback(Output("live-kpis", "children"), Input("interval", "n_intervals"))
-def update_live_kpis(_):
-    history     = load_json(RETRAIN_HISTORY_PATH)
-    inc_history = load_json(INCREMENTAL_HISTORY_PATH)
-    last        = history[-1]     if history     else None
-    last_inc    = inc_history[-1] if inc_history else None
-
-    return [
-        kpi("Current ROC-AUC",  f"{last['roc_auc']:.4f}"    if last     else "N/A", "after last retrain"),
-        kpi("Current F1",       f"{last['f1']:.4f}"          if last     else "N/A", "after last retrain"),
-        kpi("Retrain Rounds",   str(len(history)),                                   "progressive retrains logged"),
-        kpi("Incremental ROC",  f"{last_inc['roc_auc']:.4f}" if last_inc else "N/A", "round 10 of 10"),
-    ]
-
-
-# ── Chart callbacks ───────────────────────────────────────────────────────────
-@app.callback(Output("retrain-chart", "figure"), Input("interval", "n_intervals"))
-def update_retrain_chart(_):
-    history = load_json(RETRAIN_HISTORY_PATH)
-    fig = go.Figure(layout=base_layout("MODEL PERFORMANCE OVER TRAINING SIZE"))
-
-    if not history:
-        fig.add_annotation(text="No retrain data yet", x=0.5, y=0.5,
-                           xref="paper", yref="paper", showarrow=False,
-                           font=dict(color=MUTED, size=14))
-        return fig
-
-    sorted_h = sorted(history, key=lambda r: r.get("train_size", 0))
-    labels   = [f"{r['train_size'] // 1000}k" for r in sorted_h]
-
-    for metric, color, name in [
-        ("roc_auc",  BLUE,   "ROC-AUC"),
-        ("f1",       GREEN,  "F1"),
-        ("accuracy", YELLOW, "Accuracy"),
-    ]:
-        fig.add_trace(go.Scatter(
-            x=labels, y=[r[metric] for r in sorted_h],
-            name=name, mode="lines+markers",
-            line=dict(color=color, width=2), marker=dict(size=6),
-        ))
-
-    fig.update_layout(yaxis=dict(range=[0.5, 1.0]), xaxis_title="Training size", yaxis_title="Score")
-    return fig
-
-
-@app.callback(Output("incremental-chart", "figure"), Input("interval", "n_intervals"))
-def update_incremental_chart(_):
-    history = load_json(INCREMENTAL_HISTORY_PATH)
-    fig = go.Figure(layout=base_layout("INCREMENTAL LEARNING CURVE (90/10 SPLIT, 10 ROUNDS)"))
-
-    if not history:
-        fig.add_annotation(text="No incremental training data yet", x=0.5, y=0.5,
-                           xref="paper", yref="paper", showarrow=False,
-                           font=dict(color=MUTED, size=14))
-        return fig
-
-    labels = [f"Round {r['round']}" for r in history]
-
-    for metric, color, name in [
-        ("roc_auc",  BLUE,   "ROC-AUC"),
-        ("f1",       GREEN,  "F1"),
-        ("accuracy", YELLOW, "Accuracy"),
-    ]:
-        fig.add_trace(go.Scatter(
-            x=labels, y=[r[metric] for r in history],
-            name=name, mode="lines+markers",
-            line=dict(color=color, width=2), marker=dict(size=6),
-        ))
-
-    fig.update_layout(yaxis=dict(range=[0.5, 1.0]), xaxis_title="Round", yaxis_title="Score")
-    return fig
-
-
-@app.callback(Output("psi-chart", "figure"), Input("interval", "n_intervals"))
-def update_psi_chart(_):
-    history = load_json(RETRAIN_HISTORY_PATH)
-    fig = go.Figure(layout=base_layout("PSI DRIFT PER FEATURE (LATEST)"))
-    psi_scores = history[-1].get("psi_scores") or {} if history else {}
-
-    if not psi_scores:
-        fig.add_annotation(text="No drift data yet — stream data first",
-                           x=0.5, y=0.5, xref="paper", yref="paper",
-                           showarrow=False, font=dict(color=MUTED, size=14))
-        return fig
-
-    features = list(psi_scores.keys())
-    values   = list(psi_scores.values())
-    colors   = [RED if v > 0.2 else YELLOW if v > 0.1 else GREEN for v in values]
-
-    fig.add_trace(go.Bar(
-        x=values, y=features, orientation="h", marker_color=colors,
-        showlegend=False,
-        text=[f"{v:.5f}" for v in values], textposition="outside",
-        textfont=dict(color=TEXT, size=11),
-    ))
-    fig.add_vline(x=0.1, line=dict(color=YELLOW, dash="dash", width=1))
-    fig.add_vline(x=0.2, line=dict(color=RED,    dash="dash", width=1))
-    fig.update_layout(
-        xaxis=dict(range=[0, max(max(values) * 1.4, 0.25)], gridcolor=BORDER, zerolinecolor=BORDER),
-        xaxis_title="PSI Score",
-        annotations=[
-            dict(x=0.1, y=1.05, xref="x", yref="paper", text="monitor",
-                 showarrow=False, font=dict(color=YELLOW, size=10)),
-            dict(x=0.2, y=1.05, xref="x", yref="paper", text="retrain",
-                 showarrow=False, font=dict(color=RED, size=10)),
-        ],
-    )
-    return fig
-
-
+# ── Static chart callbacks (data never changes, interval just keeps Dash happy)
 @app.callback(Output("airline-chart", "figure"), Input("interval", "n_intervals"))
 def update_airline_chart(_):
     colors = [RED if v > 0.5 else YELLOW if v > 0.4 else GREEN for v in df_airline["Delay"]]

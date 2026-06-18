@@ -95,6 +95,13 @@ def log_training_run(run_type, train_size, roc_auc, f1, accuracy,
         s.commit()
 
 
+def clear_training_runs(run_type: str):
+    """Delete all training_runs rows of a given run_type before a fresh run."""
+    with Session(engine) as s:
+        s.query(TrainingRun).filter(TrainingRun.run_type == run_type).delete()
+        s.commit()
+
+
 def log_drift_scores(psi_scores: dict):
     if not psi_scores:
         return

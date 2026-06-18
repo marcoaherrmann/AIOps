@@ -26,7 +26,7 @@ from xgboost import XGBClassifier
 from data_preprocessing import load_data, CATEGORICAL, NUMERIC, FEATURES, TARGET
 from evaluate import compute_metrics, print_metrics, save_metrics
 from drift import save_training_reference
-from database import log_training_run
+from database import log_training_run, clear_training_runs
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 MODEL_PATH              = Path("models/xgb_model.pkl")
@@ -208,9 +208,13 @@ def train_incremental(rounds: int = 10) -> list:
 
     history = []
 
-    # Clear history file immediately so the dashboard shows 0 rounds as soon as training starts
+    # Clear history file and DB so Metabase shows fresh progress from round 1
     INCREMENTAL_HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
     INCREMENTAL_HISTORY_PATH.write_text(json.dumps([], indent=2))
+    try:
+        clear_training_runs("incremental")
+    except Exception as e:
+        print(f"[DB] Could not clear incremental runs: {e}")
 
     # ── 10 Cumulative Rounds ───────────────────────────────────────────────────
     for round_num in range(1, rounds + 1):

@@ -101,9 +101,15 @@ def train(retrain_with_stream: bool = False):
     X_train = df_combined[FEATURES]
     y_train = df_combined[TARGET]
 
-    # ── Test set — always the full held-out stream pool ────────────────────────
-    X_test = df_stream_pool[FEATURES]
-    y_test = df_stream_pool[TARGET]
+    # ── Test set — exclude already-streamed rows to avoid data leakage ─────────
+    if retrain_with_stream and STREAM_PATH.exists():
+        df_test = df_stream_pool.iloc[len(df_stream):]
+        if len(df_test) < 1000:
+            df_test = df_stream_pool
+    else:
+        df_test = df_stream_pool
+    X_test = df_test[FEATURES]
+    y_test = df_test[TARGET]
 
     # ── Backup current model before overwriting ────────────────────────────────
     if MODEL_PATH.exists():

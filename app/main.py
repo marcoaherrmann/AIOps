@@ -130,12 +130,15 @@ def auto_loop():
                 model = load_model()
                 # Evaluate new model and store metrics
                 from evaluate import compute_metrics
-                from data_preprocessing import load_data, get_splits, FEATURES, TARGET
+                from data_preprocessing import FEATURES, TARGET
                 import pandas as pd
                 from data_stream import STREAM_POOL_PATH
                 df_pool = pd.read_csv(STREAM_POOL_PATH)
-                X_test = df_pool[FEATURES]
-                y_test = df_pool[TARGET]
+                df_holdout = df_pool.iloc[current_stream_pos:]
+                if len(df_holdout) < 1000:
+                    df_holdout = df_pool
+                X_test = df_holdout[FEATURES]
+                y_test = df_holdout[TARGET]
                 metrics = compute_metrics(model, X_test, y_test)
 
                 retrain_history.append({
@@ -260,8 +263,15 @@ def _run_progressive_retrain(rounds: int = 5):
             df_stream = None
             df_pool   = df_base
 
-        X_test = df_test[FEATURES]
-        y_test = df_test[TARGET]
+        if df_stream is not None:
+            df_holdout = df_test.iloc[len(df_stream):]
+            if len(df_holdout) < 1000:
+                df_holdout = df_test
+            X_test = df_holdout[FEATURES]
+            y_test = df_holdout[TARGET]
+        else:
+            X_test = df_test[FEATURES]
+            y_test = df_test[TARGET]
 
         # Clear old progressive runs so Metabase shows fresh progress
         try:

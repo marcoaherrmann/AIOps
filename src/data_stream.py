@@ -72,8 +72,9 @@ def stream_next_chunk(chunk_size: int = DEFAULT_CHUNK) -> dict:
     print(f"Streamed rows {current_idx} → {next_idx} ({len(df_chunk)} new rows)")
     print(f"Total accumulated: {next_idx} rows")
 
-    # ── PSI Drift Check ────────────────────────────────────────────────────────
-    drift_result = check_drift_psi(df_chunk)
+    # ── PSI Drift Check — use all accumulated data for a stable distribution ───
+    df_accumulated = pd.read_csv(STREAM_DATA_PATH)
+    drift_result = check_drift_psi(df_accumulated)
     print(f"Drift check: {drift_result}")
 
     return {

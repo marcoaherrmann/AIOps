@@ -94,7 +94,7 @@ def run_demo(predictions_per_chunk: int = 10):
             print("  Stream complete! All data consumed.")
             print(f"  Total predictions : {total_predictions}")
             print(f"  Total retrains    : {status['retrain_count']}")
-            print(f"\n  View dashboard: http://localhost:8000/dashboard")
+            print(f"\n  Metabase      : http://localhost:3000")
             print(f"{'='*60}")
             break
 

@@ -142,7 +142,7 @@ def auto_loop():
                 metrics = compute_metrics(model, X_test, y_test)
 
                 retrain_history.append({
-                    "timestamp"    : datetime.utcnow().isoformat(),
+                    "timestamp"    : datetime.now().isoformat(),
                     "total_streamed": result.get("total_streamed"),
                     "train_size"   : 269691 + current_stream_pos,
                     "max_psi"      : drift.get("max_psi"),
@@ -306,7 +306,7 @@ def _run_progressive_retrain(rounds: int = 5):
             metrics   = compute_metrics(pipeline, X_test, y_test)
 
             retrain_history.append({
-                "timestamp"    : datetime.utcnow().isoformat(),
+                "timestamp"    : datetime.now().isoformat(),
                 "total_streamed": len(df_pool) - len(df_base),
                 "train_size"   : len(df_train),
                 "max_psi"      : snap_max_psi,

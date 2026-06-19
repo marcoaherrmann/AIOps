@@ -63,7 +63,7 @@ def log_prediction(airline, airport_from, airport_to, day_of_week, departure_hou
                    length, delay_predicted, delay_probability):
     with Session(engine) as s:
         s.add(Prediction(
-            timestamp         = datetime.utcnow(),
+            timestamp         = datetime.now(),
             airline           = airline,
             airport_from      = airport_from,
             airport_to        = airport_to,
@@ -80,7 +80,7 @@ def log_training_run(run_type, train_size, roc_auc, f1, accuracy,
                      precision=None, recall=None, max_psi=None, worst_feature=None, round=None):
     with Session(engine) as s:
         s.add(TrainingRun(
-            timestamp     = datetime.utcnow(),
+            timestamp     = datetime.now(),
             run_type      = run_type,
             round         = round,
             train_size    = int(train_size),
@@ -105,7 +105,7 @@ def clear_training_runs(run_type: str):
 def log_drift_scores(psi_scores: dict):
     if not psi_scores:
         return
-    ts = datetime.utcnow()
+    ts = datetime.now()
     with Session(engine) as s:
         for feature, score in psi_scores.items():
             s.add(DriftScore(timestamp=ts, feature=feature, psi_score=float(score)))

@@ -34,8 +34,14 @@ def seed(n_rows: int = DEFAULT_ROWS):
     df["DepartureHour"] = df["Time"] // 60
     df["Route"]         = df["AirportFrom"] + "-" + df["AirportTo"]
 
-    # Stratified sample — keep airline distribution realistic
-    sample = df.sample(n=min(n_rows, len(df)), random_state=42).reset_index(drop=True)
+    # Stratified sample by DepartureHour — ensures every hour has enough rows
+    # so Metabase delay-rate chart doesn't spike on hours with 1-2 data points
+    min_per_hour = max(30, n_rows // df["DepartureHour"].nunique())
+    parts = []
+    for hour, group in df.groupby("DepartureHour"):
+        parts.append(group.sample(n=min(len(group), min_per_hour), random_state=42))
+    df_stratified = pd.concat(parts).sample(frac=1, random_state=42)
+    sample = df_stratified.sample(n=min(n_rows, len(df_stratified)), random_state=42).reset_index(drop=True)
 
     X = sample[FEATURES]
     probs      = model.predict_proba(X)[:, 1]

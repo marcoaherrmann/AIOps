@@ -23,6 +23,15 @@ st.set_page_config(
 # ── Header ────────────────────────────────────────────────────────────────────
 st.title("✈️ DelayPredict")
 st.markdown("*Will your flight be delayed by more than 15 minutes?*")
+
+col_links = st.columns(3)
+with col_links[0]:
+    st.link_button("📊 Data Analytics (Dash)", "http://localhost:8050", use_container_width=True)
+with col_links[1]:
+    st.link_button("🗃️ BI Dashboard (Metabase)", "http://localhost:3000", use_container_width=True)
+with col_links[2]:
+    st.link_button("🔬 Experiment Tracking (MLflow)", "http://localhost:5001", use_container_width=True)
+
 st.divider()
 
 # ── Input form ────────────────────────────────────────────────────────────────
@@ -102,33 +111,3 @@ if st.button("🔍 Predict Delay", type="primary", use_container_width=True):
             except Exception as e:
                 st.error(f"Unexpected error: {e}")
 
-# ── Sidebar — live model status ───────────────────────────────────────────────
-with st.sidebar:
-    st.header("Model Status")
-    try:
-        status = requests.get(f"{API_URL}/status", timeout=5).json()
-
-        history = status.get("retrain_history", [])
-        last    = history[-1] if history else None
-
-        st.metric("Times Retrained",  status.get("retrain_count", 0))
-        st.metric("Model ROC-AUC",    last["roc_auc"] if last else "N/A")
-
-        stream_total    = status.get("stream_total", 1)
-        stream_consumed = status.get("stream_consumed", 0)
-        stream_pct      = int((stream_consumed / stream_total) * 100) if stream_total > 0 else 0
-        st.metric("Stream Consumed", f"{stream_pct}%")
-
-        drift = status.get("drift", {})
-        if drift.get("drift_detected"):
-            st.warning(f"⚠️ Drift detected\nPSI: {drift.get('max_psi')} ({drift.get('worst_feature')})")
-        else:
-            st.success("✓ No drift detected")
-
-    except Exception:
-        st.info("API not reachable — status unavailable.")
-
-    st.divider()
-    st.link_button("📊 Open Data Analytics", "http://localhost:8050", use_container_width=True)
-    st.link_button("🗃️ Open BI Dashboard (Metabase)", "http://localhost:3000", use_container_width=True)
-    st.caption("🔗 [MLflow UI](http://localhost:5001) · [API Docs](http://localhost:8000/docs)")

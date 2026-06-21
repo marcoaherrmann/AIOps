@@ -5,6 +5,7 @@ Loads the raw airline delay dataset and applies feature engineering.
 Used by src/train.py and src/evaluate.py.
 """
 
+import time
 import pandas as pd
 from pathlib import Path
 from sklearn.model_selection import train_test_split
@@ -27,7 +28,16 @@ def load_data(path: Path = RAW_PATH) -> pd.DataFrame:
             "Please place airlines_delay.csv in data/raw/"
         )
 
-    df = pd.read_csv(path)
+    for attempt in range(5):
+        try:
+            df = pd.read_csv(path)
+            break
+        except OSError as e:
+            if attempt < 4:
+                print(f"CSV read attempt {attempt + 1} failed ({e}), retrying in 3s...")
+                time.sleep(3)
+            else:
+                raise
 
     # Feature engineering — same as in 03b_xgboost.ipynb
     df["DepartureHour"] = df["Time"] // 60

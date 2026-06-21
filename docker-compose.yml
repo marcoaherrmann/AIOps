@@ -12,7 +12,7 @@ services:
 
   mlflow:
     build: .
-    command: mlflow ui --host 0.0.0.0 --port 5000 --backend-store-uri /app/notebooks/mlruns
+    command: mlflow ui --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:////app/data/mlflow.db
     ports:
       - "5001:5000"   # MLflow UI → http://localhost:5001
     volumes:
@@ -30,7 +30,8 @@ services:
       - .:/app        # same volume so models/ is shared
     environment:
       - PYTHONUNBUFFERED=1
-      - MLFLOW_ALLOW_FILE_STORE=true   # required since newer MLflow versions
+      - MLFLOW_ALLOW_FILE_STORE=true
+      - MLFLOW_TRACKING_URI=sqlite:////app/data/mlflow.db
       - TZ=Europe/Berlin
 
   dash:

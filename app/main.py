@@ -296,11 +296,48 @@ def _run_progressive_retrain(rounds: int = 5):
             shutil.copy(MODEL_PATH, BACKUP_PATH)
 
         # MLflow setup — one run per round under the DelayPredict experiment
-        mlflow.set_tracking_uri("file:///app/notebooks/mlruns")
+        mlflow.set_tracking_uri("sqlite:////app/data/mlflow.db")
         mlflow.set_experiment("DelayPredict")
 
+        # Round 0: baseline — evaluate current model (trained on base 50%) on the test set
+        pipeline_base = build_pipeline()
+        pipeline_base.fit(df_base[FEATURES], df_base[TARGET])
+        metrics_base = compute_metrics(pipeline_base, X_test, y_test)
+        retrain_history.append({
+            "timestamp"    : datetime.now().isoformat(),
+            "total_streamed": 0,
+            "train_size"   : len(df_base),
+            "max_psi"      : snap_max_psi,
+            "worst_feature": snap_worst,
+            "psi_scores"   : snap_psi,
+            "roc_auc"      : round(metrics_base["ROC-AUC"], 4),
+            "f1"           : round(metrics_base["F1"], 4),
+            "accuracy"     : round(metrics_base["Accuracy"], 4),
+        })
+        Path("data/processed/retrain_history.json").write_text(json.dumps(retrain_history))
+        try:
+            log_training_run(
+                run_type="progressive", round=0, train_size=len(df_base),
+                roc_auc=metrics_base["ROC-AUC"], f1=metrics_base["F1"],
+                accuracy=metrics_base["Accuracy"], precision=metrics_base["Precision"],
+                recall=metrics_base["Recall"], max_psi=snap_max_psi, worst_feature=snap_worst,
+            )
+        except Exception:
+            pass
+        with mlflow.start_run(run_name=f"XGBoost_progressive_r0_base_{len(df_base)}rows"):
+            mlflow.log_params({"round": 0, "total_rounds": rounds, "train_size": len(df_base), "stream_rows": 0})
+            mlflow.log_metrics({"accuracy": metrics_base["Accuracy"], "precision": metrics_base["Precision"],
+                                "recall": metrics_base["Recall"], "f1": metrics_base["F1"],
+                                "roc_auc": metrics_base["ROC-AUC"]})
+        print(f"[Retrain] Round 0 (base) done — train_size={len(df_base):,}")
+
         for i in range(1, rounds + 1):
-            df_train = df_pool.sample(frac=i / rounds, random_state=42)
+            if df_stream is not None:
+                # Keep base fixed, progressively add 1/5 … 5/5 of stream
+                stream_chunk = df_stream.sample(frac=i / rounds, random_state=42)
+                df_train = pd.concat([df_base, stream_chunk], ignore_index=True)
+            else:
+                df_train = df_base.sample(frac=i / rounds, random_state=42)
             pipeline  = build_pipeline()
             pipeline.fit(df_train[FEATURES], df_train[TARGET])
             metrics   = compute_metrics(pipeline, X_test, y_test)
@@ -431,7 +468,7 @@ def status():
         "stream_total"      : pool_size,
         "drift"             : drift_result,
         "retrain_count"     : len(retrain_history),
-        "retrain_history"   : retrain_history[-5:],
+        "retrain_history"   : retrain_history[-6:],
         "retrain_running"   : retrain_running,
         "is_rolled_back"    : is_rolled_back,
         "model"             : MODEL_PATH,

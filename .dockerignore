@@ -1,0 +1,11 @@
+data/
+models/
+notebooks/
+.git/
+__pycache__/
+*.pyc
+*.pyo
+*.pkl
+*.db
+mlruns/
+.env

@@ -33,7 +33,7 @@ MODEL_PATH              = Path("models/xgb_model.pkl")
 BACKUP_PATH             = Path("models/xgb_model_backup.pkl")
 STREAM_PATH             = Path("data/processed/stream_data.csv")   # accumulated new data
 INCREMENTAL_HISTORY_PATH = Path("data/processed/incremental_history.json")
-MLFLOW_URI              = "file:///app/notebooks/mlruns"
+MLFLOW_URI              = "sqlite:////app/data/mlflow.db"
 RANDOM_STATE            = 42
 INITIAL_FRAC            = 0.5   # train on 50% initially
 
@@ -172,7 +172,8 @@ def train(retrain_with_stream: bool = False):
             "f1"       : metrics["F1"],
             "roc_auc"  : metrics["ROC-AUC"],
         })
-        mlflow.sklearn.log_model(pipeline, name="model")
+        mlflow.sklearn.log_model(pipeline, name="model",
+            skops_trusted_types=["xgboost.core.Booster", "xgboost.sklearn.XGBClassifier"])
 
     print(f"MLflow run logged: {run_name}")
     return metrics

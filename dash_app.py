@@ -99,13 +99,15 @@ def btn(label, btn_id, tooltip=""):
             "padding": "10px 20px", "borderRadius": "8px", "cursor": "pointer",
             "fontSize": "14px", "fontWeight": "bold",
         }),
-        html.Span("?", title=tooltip, style={
-            "display": "inline-flex", "alignItems": "center", "justifyContent": "center",
-            "width": "18px", "height": "18px", "borderRadius": "50%",
-            "background": BORDER, "color": MUTED, "fontSize": "11px",
-            "cursor": "help", "marginLeft": "6px", "fontWeight": "bold",
-            "flexShrink": "0",
-        }),
+        html.Div([
+            html.Span("?", style={
+                "display": "inline-flex", "alignItems": "center", "justifyContent": "center",
+                "width": "18px", "height": "18px", "borderRadius": "50%",
+                "background": BORDER, "color": MUTED, "fontSize": "11px",
+                "cursor": "help", "fontWeight": "bold", "flexShrink": "0",
+            }),
+            html.Div(tooltip, className="tooltip-box"),
+        ], className="tooltip-wrap", style={"marginLeft": "6px"}),
     ], style={"display": "inline-flex", "alignItems": "center", "marginRight": "16px"})
 
 GRID2 = {"display": "grid", "gridTemplateColumns": "1fr 1fr", "gap": "16px", "marginBottom": "24px"}
@@ -147,9 +149,10 @@ app.layout = html.Div(
                            "letterSpacing": "1px", "margin": "0 0 16px 0"}),
             html.Div([
                 btn("🔄 Retrain on Stream Data",    "btn-retrain",
-                    "Trains the model in 5 progressive rounds on the original data plus any newly streamed data. "
-                    "Each round uses a larger fraction of the available data. "
-                    "Triggers automatically when PSI drift exceeds the threshold."),
+                    "Trains a baseline on the first 50% of data, then progressively adds "
+                    "the remaining 50% in 5 steps to simulate incoming stream data. "
+                    "Shows how model performance changes as more data arrives "
+                    "and whether data drift affects prediction quality."),
                 btn("📈 Start Incremental Training", "btn-incremental",
                     "Runs 10 cumulative training rounds on a 90/10 split. "
                     "Round 1 uses 10% of the training pool, Round 10 uses 100%. "

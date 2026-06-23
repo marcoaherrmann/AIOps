@@ -96,6 +96,9 @@ def auto_loop():
     if prediction_count % PRED_TRIGGER != 0:
         return
 
+    if retrain_running:
+        return
+
     print(f"[Auto Loop] {prediction_count} predictions — streaming next chunk...")
 
     # ── Stream next chunk ──────────────────────────────────────────────────────
@@ -255,23 +258,14 @@ def _run_progressive_retrain(rounds: int = 5):
 
         from drift import check_drift_psi
 
-        stream_path = Path("data/processed/stream_data.csv")
+        stream_path = Path("data/processed/stream_pool.csv")
         if stream_path.exists():
             df_stream = pd.read_csv(stream_path)
-            df_pool   = pd.concat([df_base, df_stream], ignore_index=True)
         else:
             df_stream = None
-            df_pool   = df_base
 
-        if df_stream is not None:
-            df_holdout = df_test.iloc[len(df_stream):]
-            if len(df_holdout) < 1000:
-                df_holdout = df_test
-            X_test = df_holdout[FEATURES]
-            y_test = df_holdout[TARGET]
-        else:
-            X_test = df_test[FEATURES]
-            y_test = df_test[TARGET]
+        X_test = df_test[FEATURES]
+        y_test = df_test[TARGET]
 
         # Clear old progressive runs so Metabase shows fresh progress
         try:
@@ -279,8 +273,10 @@ def _run_progressive_retrain(rounds: int = 5):
         except Exception:
             pass
 
-        # Compute PSI once against the training reference
-        drift_snap   = check_drift_psi(df_stream) if df_stream is not None else {}
+        # Compute PSI on accumulated stream data (not full pool)
+        stream_data_path = Path("data/processed/stream_data.csv")
+        df_stream_data = pd.read_csv(stream_data_path) if stream_data_path.exists() else None
+        drift_snap   = check_drift_psi(df_stream_data) if df_stream_data is not None else {}
         snap_psi     = drift_snap.get("psi_scores", {})
         snap_max_psi = drift_snap.get("max_psi")
         snap_worst   = drift_snap.get("worst_feature", "—")
@@ -344,7 +340,7 @@ def _run_progressive_retrain(rounds: int = 5):
 
             retrain_history.append({
                 "timestamp"    : datetime.now().isoformat(),
-                "total_streamed": len(df_pool) - len(df_base),
+                "total_streamed": len(df_stream) if df_stream is not None else 0,
                 "train_size"   : len(df_train),
                 "max_psi"      : snap_max_psi,
                 "worst_feature": snap_worst,
@@ -377,7 +373,7 @@ def _run_progressive_retrain(rounds: int = 5):
                     "round"        : i,
                     "total_rounds" : rounds,
                     "train_size"   : len(df_train),
-                    "stream_rows"  : len(df_pool) - len(df_base),
+                    "stream_rows"  : len(df_stream) if df_stream is not None else 0,
                     "max_psi"      : snap_max_psi,
                     "worst_feature": snap_worst,
                 })

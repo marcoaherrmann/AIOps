@@ -30,7 +30,7 @@ Binary classification using XGBoost, with automatic drift detection and retraini
 | DepartureHour | Numeric | Feature-engineered: Time // 60 (0–23) |
 | Length | Numeric | Flight duration in minutes |
 
-Target: `Delay` (0 = on time, 1 = delayed > 15 min) — **~44% delayed**
+Target: `Delay` (0 = on time, 1 = delayed > 15 min)  **~44% delayed**
 
 ---
 
@@ -56,7 +56,7 @@ Pipeline: `OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1)`
 
 ---
 
-## 50/50 Split — Core Mechanism
+## 50/50 Split - Core Mechanism
 
 - **50% (~270k rows)** → Training base (`random_state=42`)
 - **50% (~270k rows)** → `stream_pool.csv` (simulates incoming real-time data)
@@ -81,7 +81,7 @@ The auto-loop processes one chunk every 10 predictions. The **Retrain button** a
 - Round 1 (10% = 48k rows) → ROC-AUC 0.7011
 - Round 10 (100% = 485k rows) → ROC-AUC 0.7208
 
-Does not replace the live model — for learning curve analysis only.
+Does not replace the live model - for learning curve analysis only.
 
 ---
 
@@ -192,7 +192,7 @@ docker exec aiops-api-1 python src/seed_predictions.py --rows 2000
 
 ## Frontend
 
-### Streamlit — User Interface (Port 8501)
+### Streamlit - User Interface (Port 8501)
 
 For end-users and demos. Navigation links to Dash, Metabase, and MLflow in the header.
 

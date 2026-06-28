@@ -44,7 +44,7 @@ XGBoost v2 binary classifier wrapped in a scikit-learn Pipeline.
 | Logistic Regression | 0.692 | 64.6% | 0.551 |
 | Decision Tree | 0.703 | 65.5% | 0.571 |
 | Random Forest | 0.720 | 66.7% | 0.572 |
-| **XGBoost v2 (chosen)** | **0.724** | **67.1%** | **0.586** |
+| **XGBoost (chosen)** | **0.724** | **67.1%** | **0.586** |
 
 **XGBoost Hyperparameters:**
 ```python
